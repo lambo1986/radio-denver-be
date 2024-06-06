@@ -84,7 +84,6 @@ RSpec.describe "Files requests", vcr: true, type: :request do
       expect(json_response["s3_key"]).not_to eq("key1")
       expect(assigns(:audio_file)).to eq(audio_file1)
     end
-
   end
 
   describe "DELETE /users/:user_id/audio_files/:id", type: :request do

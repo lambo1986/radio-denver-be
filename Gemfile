@@ -28,9 +28,9 @@ gem "tzinfo-data", platforms: %i[ windows jruby ]
 gem 'jwt'
 # Reduces boot times through caching; required in config/boot.rb
 gem "bootsnap", require: false
-gem 'bcrypt'
-gem 'faraday'
-gem 'graphql'
+gem 'bcrypt' # authentication
+gem 'faraday' # API development
+gem 'graphql' # maybe not using? 
 gem 'aws-sdk-s3', require: false
 gem 'dotenv-rails', groups: [:development, :test]
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
