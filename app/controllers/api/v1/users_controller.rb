@@ -1,16 +1,21 @@
 class Api::V1::UsersController < ApplicationController
+  skip_before_action :verify_authenticity_token, only: [:create, :update, :destroy]
 
   def index
     users = User.all
     render json: UserSerializer.new(users)
   end
 
-  def show
-    user = User.find(params[:id])
-    render json: UserSerializer.new(user)
+   def show
+    user = User.find_by(id: params[:id])
+    if user
+      render json: UserSerializer.new(user)
+    else
+      render json: { error: 'User not found' }, status: :not_found
+    end
   end
 
-  def create
+   def create
     user = User.new(user_params)
     if user.save
       render json: UserSerializer.new(user).serializable_hash.to_json, status: :created
@@ -49,7 +54,7 @@ class Api::V1::UsersController < ApplicationController
 
   private
 
-  def user_params
-    params.require(:user).permit(:first_name, :last_name, :email, :password, :password_confirmation, :host_name, :description, :profile_image, :phone_number)
+   def user_params
+    params.require(:user).permit(:host_name, :description, :first_name, :last_name, :email, :phone_number, :password, :password_confirmation)
   end
 end
