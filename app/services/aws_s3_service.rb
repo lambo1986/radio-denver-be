@@ -16,6 +16,7 @@ class AwsS3Service
     File.open(file_path, 'rb') do |file|
       @s3_client.put_object(bucket: @bucket_name, key: object_key, body: file)
     end
+    object_key
   end
 
   def delete_file(object_key)
@@ -23,6 +24,17 @@ class AwsS3Service
   end
 
   def get_file_url(object_key)
-    @s3_client.get_object(bucket: @bucket_name, key: object_key)#.presigned_url(:get)
+    signer = Aws::S3::Presigner.new(client: @s3_client)
+    signer.presigned_url(:get_object, bucket: @bucket_name, key: object_key, expires_in: 1.hour.to_i)
+  end
+
+  def upload_uploaded_file(uploaded_file, prefix: 'audio_files')
+    object_key = "#{prefix}/#{SecureRandom.uuid}/#{uploaded_file.original_filename}"
+    upload_file(uploaded_file.path, object_key)
+
+    {
+      key: object_key,
+      url: get_file_url(object_key)
+    }
   end
 end

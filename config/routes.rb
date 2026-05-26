@@ -7,6 +7,9 @@ Rails.application.routes.draw do
 
   namespace :api do
     namespace :v1 do
+      resources :audio_files, only: [:index, :show, :update, :create, :destroy]
+      resources :playlists, only: [:index, :show, :update, :create, :destroy]
+
       # User routes with nested audio_files routes
       resources :users, only: [:index, :show, :create, :update, :destroy] do
         resources :audio_files, only: [:index, :show, :update, :create, :destroy]

@@ -1,9 +1,10 @@
 FactoryBot.define do
   factory :song do
-    name { "MyString" }
-    artist { "MyString" }
-    album { "MyString" }
-    duration { 1 }
-    playlist { nil }
+    playlist
+    name { "Station Intro" }
+    artist { "Poole and the Gang" }
+    album { "Host Breaks" }
+    duration { 30 }
+    position { 1 }
   end
 end
