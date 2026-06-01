@@ -8,14 +8,25 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       resources :audio_files, only: [:index, :show, :update, :create, :destroy]
-      resources :playlists, only: [:index, :show, :update, :create, :destroy]
+      resources :host_invitations, only: [:index, :create]
+      get 'station/schedule', to: 'playlists#public_schedule'
+      resources :playlists, only: [:index, :show, :update, :create, :destroy] do
+        member do
+          patch :mark_ready
+          patch :request_changes
+          patch :reject
+          patch :schedule
+          post :deliver
+        end
+      end
 
       # User routes with nested audio_files routes
       resources :users, only: [:index, :show, :create, :update, :destroy] do
         resources :audio_files, only: [:index, :show, :update, :create, :destroy]
       end
 
-      # Session routes for login and logout
+      # Session routes for login, current user, and logout
+      get 'sessions/current', to: 'sessions#show'
       resources :sessions, only: [:create, :destroy]
 
       # Password reset routes

@@ -7,6 +7,7 @@ RSpec.describe User, type: :model do
     it { should validate_presence_of(:email) }
     it { should validate_uniqueness_of(:email) }
     it { should validate_presence_of(:password_digest) }
+    it { should validate_inclusion_of(:role).in_array(%w[host admin]) }
   end
 
   describe 'associations' do
@@ -23,6 +24,7 @@ RSpec.describe User, type: :model do
       expect(user1.last_name).to eq("Doe")
       expect(user1.email).to eq("lame@gmail.com")
       expect(user1.password).to be_a(String)
+      expect(user1.role).to eq("host")
       expect(user2.first_name).to eq("Jane")
       expect(user3.last_name).to eq("Dot")
       expect(User.count).to eq(3)

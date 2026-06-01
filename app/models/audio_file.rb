@@ -16,6 +16,10 @@ class AudioFile < ApplicationRecord
   before_validation :set_defaults
 
   def public_url
+    return if s3_key.blank?
+
+    AwsS3Service.new(ENV.fetch('AWS_BUCKET_NAME', 'radio-denver')).get_file_url(s3_key)
+  rescue StandardError
     url.presence || s3_key
   end
 

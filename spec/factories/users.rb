@@ -5,5 +5,10 @@ FactoryBot.define do
     sequence(:email) { |n| "john#{n}@example.com" }
     password { "securepassword" }
     password_confirmation { "securepassword" }
+    role { "host" }
+
+    trait :admin do
+      role { "admin" }
+    end
   end
 end

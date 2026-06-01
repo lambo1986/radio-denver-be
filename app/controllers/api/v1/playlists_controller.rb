@@ -1,10 +1,23 @@
 class Api::V1::PlaylistsController < ApplicationController
-  before_action :authenticate_request
+  skip_before_action :verify_authenticity_token, only: :public_schedule
+  before_action :authenticate_request, except: :public_schedule
   before_action :set_playlist, only: [:show, :update, :destroy]
+  before_action :require_admin, only: [:mark_ready, :request_changes, :reject, :schedule, :deliver]
+  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reject, :schedule, :deliver]
 
   def index
-    playlists = @current_user.playlists.includes(:songs, :full_show_audio_file).order(created_at: :desc)
+    playlists = playlist_scope.includes(:full_show_audio_file, songs: :audio_file).order(created_at: :desc)
     render json: playlists.map { |playlist| serialize_playlist(playlist) }
+  end
+
+  def public_schedule
+    playlists = Playlist
+                .where(status: %w[scheduled aired])
+                .where.not(scheduled_at: nil)
+                .includes(:full_show_audio_file, songs: :audio_file)
+                .order(:scheduled_at)
+
+    render json: playlists.map { |playlist| serialize_public_playlist(playlist) }
   end
 
   def show
@@ -44,10 +57,61 @@ class Api::V1::PlaylistsController < ApplicationController
     head :no_content
   end
 
+  def mark_ready
+    if @playlist.update(status: 'ready', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      render json: serialize_playlist(@playlist)
+    else
+      render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
+  def request_changes
+    if @playlist.update(status: 'needs_edits', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      render json: serialize_playlist(@playlist)
+    else
+      render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
+  def reject
+    if @playlist.update(status: 'rejected', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      render json: serialize_playlist(@playlist)
+    else
+      render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
+  def schedule
+    if @playlist.update(status: 'scheduled', scheduled_at: schedule_params[:scheduled_at])
+      render json: serialize_playlist(@playlist)
+    else
+      render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
+  def deliver
+    delivered_playlist = StreamDeliveryService.new(@playlist, target: delivery_params[:target]).deliver
+    render json: serialize_playlist(delivered_playlist)
+  end
+
   private
+
+  def playlist_scope
+    if params[:scope] == 'station'
+      return Playlist.none unless @current_user.admin?
+
+      return Playlist.where(status: %w[submitted needs_edits rejected ready scheduled aired])
+    end
+
+    @current_user.playlists
+  end
 
   def set_playlist
     @playlist = @current_user.playlists.find(params[:id])
+  end
+
+  def set_station_playlist
+    @playlist = Playlist.where(status: %w[submitted needs_edits rejected ready scheduled aired]).find(params[:id])
   end
 
   def playlist_params
@@ -57,6 +121,7 @@ class Api::V1::PlaylistsController < ApplicationController
       :host_name,
       :status,
       :scheduled_at,
+      :delivery_target,
       :full_show_file,
       songs: [
         :name,
@@ -71,11 +136,23 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def playlist_attributes
-    playlist_params.except(:songs, :full_show_file)
+    playlist_params.except(:songs, :full_show_file, :delivery_target)
+  end
+
+  def schedule_params
+    params.require(:playlist).permit(:scheduled_at)
+  end
+
+  def review_params
+    params.fetch(:review, {}).permit(:review_notes)
+  end
+
+  def delivery_params
+    params.fetch(:delivery, {}).permit(:target)
   end
 
   def build_songs(playlist)
-    Array(playlist_params[:songs]).each_with_index do |song_params, index|
+    song_inputs.each_with_index do |song_params, index|
       playlist.songs.build(
         name: song_params[:name],
         artist: song_params[:artist],
@@ -87,6 +164,13 @@ class Api::V1::PlaylistsController < ApplicationController
         position: index + 1
       )
     end
+  end
+
+  def song_inputs
+    songs = playlist_params[:songs]
+    return [] if songs.blank?
+
+    songs.respond_to?(:values) ? songs.values : Array(songs)
   end
 
   def attach_full_show_file(playlist)
@@ -139,6 +223,13 @@ class Api::V1::PlaylistsController < ApplicationController
       host_name: playlist.host_name,
       status: playlist.status,
       scheduled_at: playlist.scheduled_at,
+      review_notes: playlist.review_notes,
+      reviewed_at: playlist.reviewed_at,
+      delivery_status: playlist.delivery_status,
+      delivery_target: playlist.delivery_target,
+      delivery_reference: playlist.delivery_reference,
+      delivery_manifest: playlist.delivery_manifest,
+      delivered_at: playlist.delivered_at,
       full_show_audio_file: playlist.full_show_audio_file && {
         id: playlist.full_show_audio_file.id,
         name: playlist.full_show_audio_file.name,
@@ -152,12 +243,49 @@ class Api::V1::PlaylistsController < ApplicationController
           album: song.album,
           duration: song.duration,
           position: song.position,
-          file_url: song.file_url,
+          file_url: song.audio_file&.public_url || song.file_url,
           file_name: song.file_name,
-          audio_file_id: song.audio_file_id
+          audio_file_id: song.audio_file_id,
+          audio_file: song.audio_file && {
+            id: song.audio_file.id,
+            name: song.audio_file.name,
+            title: song.audio_file.title,
+            artist: song.audio_file.artist,
+            url: song.audio_file.public_url,
+            kind: song.audio_file.kind,
+            visibility: song.audio_file.visibility
+          }
         }
       end,
       created_at: playlist.created_at
+    }
+  end
+
+  def serialize_public_playlist(playlist)
+    {
+      id: playlist.id,
+      name: playlist.name,
+      description: playlist.description,
+      host_name: playlist.host_name,
+      status: playlist.status,
+      scheduled_at: playlist.scheduled_at,
+      delivery_status: playlist.delivery_status,
+      delivery_reference: playlist.delivery_reference,
+      full_show_audio_file: playlist.full_show_audio_file && {
+        id: playlist.full_show_audio_file.id,
+        name: playlist.full_show_audio_file.name,
+        url: playlist.full_show_audio_file.public_url
+      },
+      songs: playlist.songs.map do |song|
+        {
+          id: song.id,
+          name: song.name,
+          artist: song.artist,
+          album: song.album,
+          duration: song.duration,
+          position: song.position
+        }
+      end
     }
   end
 end

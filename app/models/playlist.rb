@@ -7,7 +7,8 @@ class Playlist < ApplicationRecord
   validates :name, presence: true
   validates :description, presence: true
   validates :host_name, presence: true
-  validates :status, inclusion: { in: %w[draft ready scheduled submitted aired] }, allow_nil: true
+  validates :status, inclusion: { in: %w[draft submitted needs_edits rejected ready scheduled aired] }, allow_nil: true
+  validates :delivery_status, inclusion: { in: %w[not_sent queued sent failed] }, allow_nil: true
 
   before_validation :set_default_status
 
@@ -15,5 +16,6 @@ class Playlist < ApplicationRecord
 
   def set_default_status
     self.status ||= 'draft'
+    self.delivery_status ||= 'not_sent'
   end
 end

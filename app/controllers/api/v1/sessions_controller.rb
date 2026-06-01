@@ -1,5 +1,10 @@
 class Api::V1::SessionsController < ApplicationController
   skip_before_action :verify_authenticity_token, only: [:create, :destroy]
+  before_action :authenticate_request, only: :show
+
+  def show
+    render json: UserSerializer.new(@current_user), status: :ok
+  end
 
   def create
     user = User.find_by(email: session_params[:email])

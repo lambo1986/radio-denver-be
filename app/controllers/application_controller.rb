@@ -12,7 +12,13 @@ class ApplicationController < ActionController::Base
     render json: { error: 'Not Authorized' }, status: :unauthorized
   end
 
+  def require_admin
+    return if @current_user&.admin?
+
+    render json: { error: 'Admin access required' }, status: :forbidden
+  end
+
   def api_request?
-    request.format.json?
+    request.format.json? || request.path.start_with?('/api/')
   end
 end

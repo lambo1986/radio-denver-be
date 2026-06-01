@@ -16,8 +16,15 @@ class Api::V1::UsersController < ApplicationController
   end
 
    def create
+    invitation = HostInvitation.find_usable(params.dig(:user, :invite_code), email: user_params[:email])
+    unless invitation
+      render json: { error: 'A valid host invite code is required.' }, status: :forbidden
+      return
+    end
+
     user = User.new(user_params)
     if user.save
+      invitation.use!(user)
       render json: UserSerializer.new(user).serializable_hash.to_json, status: :created
     else
       render json: { errors: user.errors.full_messages }, status: :unprocessable_entity

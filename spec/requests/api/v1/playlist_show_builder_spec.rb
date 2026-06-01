@@ -45,6 +45,8 @@ RSpec.describe 'Playlist show builder', type: :request do
       expect(body['songs'].second['duration']).to eq(195)
       expect(body['songs'].first['position']).to eq(1)
       expect(body['songs'].second['position']).to eq(2)
+      expect(body['songs'].first['file_url']).to include(library_track.s3_key)
+      expect(body['songs'].first['audio_file']['url']).to eq(body['songs'].first['file_url'])
     end
 
     it 'attaches a full show upload to the show' do
@@ -52,7 +54,7 @@ RSpec.describe 'Playlist show builder', type: :request do
         key: 'full_shows/test/show.mp3',
         url: 'https://example.com/show.mp3'
       }
-      service = instance_double(AwsS3Service, upload_uploaded_file: upload)
+      service = instance_double(AwsS3Service, upload_uploaded_file: upload, get_file_url: upload[:url])
       allow(AwsS3Service).to receive(:new).and_return(service)
 
       file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'audio/mp3')

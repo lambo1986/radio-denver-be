@@ -27,7 +27,7 @@ RSpec.describe 'Audio library', type: :request do
         key: 'audio_files/test/upload.mp3',
         url: 'https://example.com/upload.mp3'
       }
-      service = instance_double(AwsS3Service, upload_uploaded_file: upload)
+      service = instance_double(AwsS3Service, upload_uploaded_file: upload, get_file_url: upload[:url])
       allow(AwsS3Service).to receive(:new).and_return(service)
 
       file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'audio/mp3')
