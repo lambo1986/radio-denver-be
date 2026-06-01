@@ -9,6 +9,7 @@ class AudioFile < ApplicationRecord
   validates :s3_key, presence: true
   validates :visibility, inclusion: { in: VISIBILITIES }, allow_nil: true
   validates :kind, inclusion: { in: KINDS }, allow_nil: true
+  validates :duration, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
 
   scope :library_visible, -> { where(visibility: 'shared') }
   scope :owned_by, ->(user) { where(user: user) }

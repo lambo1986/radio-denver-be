@@ -31,6 +31,7 @@ class StreamDeliveryService
       station: station_name,
       target: target,
       generated_at: Time.current.iso8601,
+      provider: provider_manifest,
       show: {
         id: playlist.id,
         title: playlist.name,
@@ -47,6 +48,48 @@ class StreamDeliveryService
 
   def station_name
     ENV.fetch('STREAM_STATION_NAME', 'Alpine Groove Guide')
+  end
+
+  def provider_manifest
+    return azuracast_provider_manifest if azuracast_target?
+
+    {
+      name: target,
+      mode: 'manual_export',
+      next_steps: [
+        'Use the assets and playout arrays to hand this show to the selected stream provider.'
+      ]
+    }
+  end
+
+  def azuracast_provider_manifest
+    {
+      name: 'AzuraCast',
+      mode: azuracast_configured? ? 'api_ready' : 'manual_export',
+      base_url: ENV['AZURACAST_BASE_URL'],
+      station_id: ENV['AZURACAST_STATION_ID'],
+      station_shortcode: ENV['AZURACAST_STATION_SHORTCODE'],
+      stream_url: ENV['AZURACAST_STREAM_URL'],
+      api_key_configured: ENV['AZURACAST_API_KEY'].present?,
+      recommended_playlist: ENV.fetch('AZURACAST_PLAYLIST_NAME', 'Alpine Groove Guide Shows'),
+      recommended_media_folder: "melody-mixer/#{playlist.id}-#{playlist.name.parameterize}",
+      next_steps: [
+        'Upload the full-show audio or ordered show assets into AzuraCast media.',
+        'Assign uploaded media to the recommended AutoDJ playlist.',
+        'Use the stream URL on the Alpine Groove Guide listener page.'
+      ],
+      api_notes: 'AzuraCast exposes per-install API docs at /api. Configure AZURACAST_* env vars before automating uploads.'
+    }
+  end
+
+  def azuracast_target?
+    target.to_s == 'azuracast'
+  end
+
+  def azuracast_configured?
+    ENV['AZURACAST_BASE_URL'].present? &&
+      ENV['AZURACAST_STATION_ID'].present? &&
+      ENV['AZURACAST_API_KEY'].present?
   end
 
   def audio_assets

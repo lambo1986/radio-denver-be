@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_05_31_000200) do
+ActiveRecord::Schema[7.1].define(version: 2026_06_01_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -31,6 +31,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_05_31_000200) do
     t.string "content_type"
     t.boolean "explicit", default: false, null: false
     t.text "notes"
+    t.integer "duration"
     t.index ["kind"], name: "index_audio_files_on_kind"
     t.index ["user_id"], name: "index_audio_files_on_user_id"
     t.index ["visibility"], name: "index_audio_files_on_visibility"

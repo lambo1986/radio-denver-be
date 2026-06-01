@@ -39,6 +39,7 @@ RSpec.describe 'Audio library', type: :request do
                  title: 'Library Track',
                  artist: 'Local Artist',
                  genre: 'Soul',
+                 duration: 195,
                  visibility: 'shared',
                  file: file
                }
@@ -50,9 +51,38 @@ RSpec.describe 'Audio library', type: :request do
       body = JSON.parse(response.body)
       expect(body['title']).to eq('Library Track')
       expect(body['artist']).to eq('Local Artist')
+      expect(body['duration']).to eq(195)
       expect(body['visibility']).to eq('shared')
       expect(body['s3_key']).to eq(upload[:key])
       expect(body['url']).to eq(upload[:url])
+    end
+  end
+
+  describe 'PATCH /api/v1/audio_files/:id' do
+    it 'updates editable metadata for a library track' do
+      audio_file = create(:audio_file, user: user, title: 'Bad Title', artist: 'Unknown', duration: 0)
+
+      patch "/api/v1/audio_files/#{audio_file.id}",
+            params: {
+              audio_file: {
+                title: 'Fixed Title',
+                artist: 'Local Band',
+                album: 'Demo Tape',
+                genre: 'Jazz',
+                duration: 241,
+                notes: 'Clean metadata'
+              }
+            },
+            headers: headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['title']).to eq('Fixed Title')
+      expect(body['artist']).to eq('Local Band')
+      expect(body['album']).to eq('Demo Tape')
+      expect(body['genre']).to eq('Jazz')
+      expect(body['duration']).to eq(241)
+      expect(body['notes']).to eq('Clean metadata')
     end
   end
 end

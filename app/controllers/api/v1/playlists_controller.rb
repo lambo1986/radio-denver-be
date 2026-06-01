@@ -2,8 +2,8 @@ class Api::V1::PlaylistsController < ApplicationController
   skip_before_action :verify_authenticity_token, only: :public_schedule
   before_action :authenticate_request, except: :public_schedule
   before_action :set_playlist, only: [:show, :update, :destroy]
-  before_action :require_admin, only: [:mark_ready, :request_changes, :reject, :schedule, :deliver]
-  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reject, :schedule, :deliver]
+  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :deliver]
+  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :deliver]
 
   def index
     playlists = playlist_scope.includes(:full_show_audio_file, songs: :audio_file).order(created_at: :desc)
@@ -67,6 +67,24 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def request_changes
     if @playlist.update(status: 'needs_edits', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      render json: serialize_playlist(@playlist)
+    else
+      render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
+  def reopen_for_edits
+    if @playlist.update(
+      status: 'needs_edits',
+      scheduled_at: nil,
+      delivery_status: 'not_sent',
+      delivery_target: nil,
+      delivery_reference: nil,
+      delivery_manifest: {},
+      delivered_at: nil,
+      review_notes: review_params[:review_notes],
+      reviewed_at: Time.current
+    )
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -233,7 +251,8 @@ class Api::V1::PlaylistsController < ApplicationController
       full_show_audio_file: playlist.full_show_audio_file && {
         id: playlist.full_show_audio_file.id,
         name: playlist.full_show_audio_file.name,
-        url: playlist.full_show_audio_file.public_url
+        url: playlist.full_show_audio_file.public_url,
+        duration: playlist.full_show_audio_file.duration
       },
       songs: playlist.songs.map do |song|
         {
@@ -253,7 +272,8 @@ class Api::V1::PlaylistsController < ApplicationController
             artist: song.audio_file.artist,
             url: song.audio_file.public_url,
             kind: song.audio_file.kind,
-            visibility: song.audio_file.visibility
+            visibility: song.audio_file.visibility,
+            duration: song.audio_file.duration
           }
         }
       end,
@@ -274,7 +294,8 @@ class Api::V1::PlaylistsController < ApplicationController
       full_show_audio_file: playlist.full_show_audio_file && {
         id: playlist.full_show_audio_file.id,
         name: playlist.full_show_audio_file.name,
-        url: playlist.full_show_audio_file.public_url
+        url: playlist.full_show_audio_file.public_url,
+        duration: playlist.full_show_audio_file.duration
       },
       songs: playlist.songs.map do |song|
         {

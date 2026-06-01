@@ -14,6 +14,7 @@ Rails.application.routes.draw do
         member do
           patch :mark_ready
           patch :request_changes
+          patch :reopen_for_edits
           patch :reject
           patch :schedule
           post :deliver
