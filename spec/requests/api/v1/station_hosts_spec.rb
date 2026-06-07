@@ -38,4 +38,16 @@ RSpec.describe 'Station host administration', type: :request do
 
     expect(response).to have_http_status(:forbidden)
   end
+
+  it 'does not let a host view or manage the station host list' do
+    host = create(:user)
+
+    get '/api/v1/station_hosts', headers: auth_headers(host)
+
+    expect(response).to have_http_status(:forbidden)
+  end
+
+  def auth_headers(user)
+    { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: user.id)}" }
+  end
 end

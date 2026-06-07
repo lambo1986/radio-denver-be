@@ -82,6 +82,17 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(playlist.reload.status).to eq('submitted')
     end
 
+    it 'rejects a submitted show with a zero-duration item' do
+      playlist = create(:playlist, status: 'submitted')
+      create(:song, playlist: playlist, duration: 0, file_url: 'https://example.com/silent.mp3')
+      confirm_submission(playlist)
+
+      patch "/api/v1/playlists/#{playlist.id}/mark_ready", headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('missing duration')
+    end
+
     it 'rejects hosts' do
       host = create(:user)
       playlist = create(:playlist, status: 'submitted')
@@ -233,6 +244,19 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       expect(JSON.parse(response.body)['errors'].join).to include('missing audio')
     end
+
+    it 'rejects scheduling a submitted show that has not been approved' do
+      playlist = create(:playlist, status: 'submitted')
+      add_valid_track(playlist)
+      confirm_submission(playlist)
+
+      patch "/api/v1/playlists/#{playlist.id}/schedule",
+            params: { playlist: { scheduled_at: '2026-06-27T20:00:00Z' } },
+            headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors']).to include('Only ready or scheduled shows can be scheduled.')
+    end
   end
 
   describe 'POST /api/v1/playlists/:id/deliver' do
@@ -284,6 +308,18 @@ RSpec.describe 'Station review workflow', type: :request do
 
       expect(response).to have_http_status(:unprocessable_entity)
       expect(JSON.parse(response.body)['errors']).to include('Only scheduled shows can be queued for delivery.')
+    end
+
+    it 'rejects delivery when a scheduled show no longer has playable audio' do
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+      create(:song, playlist: playlist, duration: 300)
+
+      post "/api/v1/playlists/#{playlist.id}/deliver",
+           params: { delivery: { target: 'azuracast' } },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('missing audio')
     end
   end
 end

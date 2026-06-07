@@ -76,5 +76,27 @@ RSpec.describe 'Playlist show builder', type: :request do
       expect(body['full_show_audio_file']['url']).to eq(upload[:url])
       expect(AudioFile.last.kind).to eq('full_show')
     end
+
+    it 'rejects an unsupported full-show file before uploading to storage' do
+      service = instance_double(AwsS3Service)
+      allow(service).to receive(:upload_uploaded_file)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+      file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'application/pdf')
+
+      post '/api/v1/playlists',
+           params: {
+             playlist: {
+               name: 'Invalid Full Show',
+               description: 'Wrong file type',
+               host_name: user.host_name,
+               full_show_file: file
+             }
+           },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('Full show must be')
+      expect(service).not_to have_received(:upload_uploaded_file)
+    end
   end
 end
