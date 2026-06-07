@@ -39,4 +39,16 @@ RSpec.describe 'Host invitations', type: :request do
       expect(body['invited_by']).to eq(admin.email)
     end
   end
+
+  describe 'PATCH /api/v1/host_invitations/:id/revoke' do
+    it 'revokes an unused invitation' do
+      invitation = create(:host_invitation, invited_by: admin)
+
+      patch "/api/v1/host_invitations/#{invitation.id}/revoke", headers: admin_headers
+
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body)['status']).to eq('revoked')
+      expect(HostInvitation.find_usable(invitation.code)).to be_nil
+    end
+  end
 end

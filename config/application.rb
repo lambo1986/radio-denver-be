@@ -41,6 +41,7 @@ config.middleware.insert_before 0, Rack::Cors do
     # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w(assets tasks))
     config.autoload_paths << Rails.root.join('lib')
+    config.time_zone = ENV.fetch('STATION_TIME_ZONE', 'Mountain Time (US & Canada)')
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

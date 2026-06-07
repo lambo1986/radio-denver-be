@@ -15,6 +15,8 @@ RSpec.describe 'Password Resets', type: :request do
         expect(response).to have_http_status(:ok)
         expect(json['message']).to eq('Email sent with password reset instructions')
         expect(user.reload.reset_password_token).not_to be_nil
+        expect(ActionMailer::Base.deliveries.last.body.encoded).to include('/reset-password?token=')
+        expect(ActionMailer::Base.deliveries.last.body.encoded).to include(ERB::Util.url_encode(user.email))
       end
     end
 

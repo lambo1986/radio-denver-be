@@ -8,7 +8,9 @@ class Api::V1::SessionsController < ApplicationController
 
   def create
     user = User.find_by(email: session_params[:email])
-    if user && user.authenticate(session_params[:password])
+    if user && user.authenticate(session_params[:password]) && !user.active?
+      render json: { error: 'This host account is paused. Contact the station admin for help.' }, status: :forbidden
+    elsif user && user.authenticate(session_params[:password])
       session[:user_id] = user.id
       render json: UserSerializer.new(user), status: :ok
     else

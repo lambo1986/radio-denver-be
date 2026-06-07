@@ -56,6 +56,21 @@ RSpec.describe 'Audio library', type: :request do
       expect(body['s3_key']).to eq(upload[:key])
       expect(body['url']).to eq(upload[:url])
     end
+
+    it 'rejects unsupported files before uploading to storage' do
+      service = instance_double(AwsS3Service)
+      allow(service).to receive(:upload_uploaded_file)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+      file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'application/pdf')
+
+      post '/api/v1/audio_files',
+           params: { audio_file: { title: 'Not Audio', artist: 'Unknown', visibility: 'private', file: file } },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('Choose an MP3')
+      expect(service).not_to have_received(:upload_uploaded_file)
+    end
   end
 
   describe 'PATCH /api/v1/audio_files/:id' do

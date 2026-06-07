@@ -7,7 +7,10 @@ class ApplicationController < ActionController::Base
   def authenticate_request
     @current_user = User.find_by(id: session[:user_id]) if session[:user_id].present?
     @current_user ||= AuthorizeApiRequestService.new(request.headers).result
-    render json: { error: 'Not Authorized' }, status: :unauthorized unless @current_user
+    unless @current_user&.active?
+      reset_session if session[:user_id].present?
+      render json: { error: 'This host account is paused. Contact the station admin for help.' }, status: :forbidden
+    end
   rescue RuntimeError
     render json: { error: 'Not Authorized' }, status: :unauthorized
   end

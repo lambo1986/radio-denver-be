@@ -2,6 +2,7 @@ class User < ApplicationRecord
   has_secure_password
 
   ROLES = %w[host admin].freeze
+  ACCOUNT_STATUSES = %w[active suspended].freeze
 
   validates :first_name, presence: true
   validates :last_name, presence: true
@@ -9,6 +10,7 @@ class User < ApplicationRecord
   validates :email, presence: true, uniqueness: true
   validates :password_digest, presence: true
   validates :role, inclusion: { in: ROLES }
+  validates :account_status, inclusion: { in: ACCOUNT_STATUSES }
 
   has_many :playlists, dependent: :destroy
   has_many :audio_files, dependent: :destroy
@@ -19,6 +21,10 @@ class User < ApplicationRecord
 
   def admin?
     role == 'admin'
+  end
+
+  def active?
+    account_status == 'active'
   end
 
   def generate_password_token!

@@ -26,8 +26,11 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def create
     playlist = @current_user.playlists.build(playlist_attributes)
+    return render_full_show_upload_errors if full_show_upload_errors.any?
+
     attach_full_show_file(playlist)
     build_songs(playlist)
+    return render_submission_errors(playlist) if playlist.status == 'submitted' && submission_errors(playlist).any?
 
     if playlist.save
       render json: serialize_playlist(playlist), status: :created
@@ -38,12 +41,15 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def update
     @playlist.assign_attributes(playlist_attributes)
+    return render_full_show_upload_errors if full_show_upload_errors.any?
+
     attach_full_show_file(@playlist)
 
     if playlist_params[:songs].present?
       @playlist.songs.destroy_all
       build_songs(@playlist)
     end
+    return render_submission_errors(@playlist) if @playlist.status == 'submitted' && submission_errors(@playlist).any?
 
     if @playlist.save
       render json: serialize_playlist(@playlist)
@@ -58,6 +64,10 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def mark_ready
+    return render_transition_error('Only submitted shows can be marked ready.') unless @playlist.status == 'submitted'
+    return render_readiness_errors if @playlist.readiness_issues.any?
+    return render_confirmation_errors if @playlist.confirmation_issues.any?
+
     if @playlist.update(status: 'ready', review_notes: review_params[:review_notes], reviewed_at: Time.current)
       render json: serialize_playlist(@playlist)
     else
@@ -100,7 +110,19 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def schedule
-    if @playlist.update(status: 'scheduled', scheduled_at: schedule_params[:scheduled_at])
+    return render_transition_error('Only ready or scheduled shows can be scheduled.') unless %w[ready scheduled].include?(@playlist.status)
+    return render_readiness_errors if @playlist.readiness_issues.any?
+
+    scheduled_at = parse_scheduled_at
+    return render_transition_error('Choose a valid scheduled date and time.') if scheduled_at.blank?
+
+    conflicts = @playlist.scheduling_conflicts(scheduled_at)
+    if conflicts.any?
+      names = conflicts.map { |playlist| "#{playlist.name} at #{playlist.scheduled_at.iso8601}" }
+      return render_transition_error("Schedule overlaps with #{names.join(', ')}.")
+    end
+
+    if @playlist.update(status: 'scheduled', scheduled_at: scheduled_at)
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -108,6 +130,10 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def deliver
+    return render_transition_error('Only scheduled shows can be queued for delivery.') unless @playlist.status == 'scheduled'
+    return render_transition_error('Schedule the show before queueing it for delivery.') if @playlist.scheduled_at.blank?
+    return render_readiness_errors if @playlist.readiness_issues.any?
+
     delivered_playlist = StreamDeliveryService.new(@playlist, target: delivery_params[:target]).deliver
     render json: serialize_playlist(delivered_playlist)
   end
@@ -141,6 +167,11 @@ class Api::V1::PlaylistsController < ApplicationController
       :scheduled_at,
       :delivery_target,
       :full_show_file,
+      :full_show_duration,
+      :audio_authorized,
+      :metadata_confirmed,
+      :explicit_content_confirmed,
+      :contains_explicit_content,
       songs: [
         :name,
         :artist,
@@ -154,7 +185,9 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def playlist_attributes
-    playlist_params.except(:songs, :full_show_file, :delivery_target)
+    attributes = playlist_params.except(:songs, :full_show_file, :full_show_duration, :delivery_target)
+    attributes[:confirmations_recorded_at] = Time.current if attributes[:status] == 'submitted'
+    attributes
   end
 
   def schedule_params
@@ -167,6 +200,32 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def delivery_params
     params.fetch(:delivery, {}).permit(:target)
+  end
+
+  def parse_scheduled_at
+    Time.zone.parse(schedule_params[:scheduled_at].to_s)
+  rescue ArgumentError
+    nil
+  end
+
+  def render_readiness_errors
+    render json: { errors: @playlist.readiness_issues }, status: :unprocessable_entity
+  end
+
+  def render_transition_error(message)
+    render json: { errors: [message] }, status: :unprocessable_entity
+  end
+
+  def render_confirmation_errors
+    render json: { errors: @playlist.confirmation_issues }, status: :unprocessable_entity
+  end
+
+  def render_submission_errors(playlist)
+    render json: { errors: submission_errors(playlist) }, status: :unprocessable_entity
+  end
+
+  def submission_errors(playlist)
+    playlist.readiness_issues + playlist.confirmation_issues
   end
 
   def build_songs(playlist)
@@ -202,7 +261,8 @@ class Api::V1::PlaylistsController < ApplicationController
       kind: 'full_show',
       visibility: 'private',
       size: uploaded_file.size,
-      content_type: uploaded_file.content_type
+      content_type: uploaded_file.content_type,
+      duration: playlist_params[:full_show_duration]
     )
 
     upload = s3_service.upload_uploaded_file(uploaded_file, prefix: 'full_shows')
@@ -228,6 +288,22 @@ class Api::V1::PlaylistsController < ApplicationController
     parts.reverse.each_with_index.sum { |value, index| value * (60**index) }
   end
 
+  def full_show_upload_errors
+    uploaded_file = playlist_params[:full_show_file]
+    return [] if uploaded_file.blank?
+
+    errors = []
+    errors << 'Full-show audio is too large. Maximum size is 500 MB.' if uploaded_file.size > AudioFile::MAX_UPLOAD_SIZE
+    unless AudioFile::SUPPORTED_CONTENT_TYPES.include?(uploaded_file.content_type)
+      errors << 'Full show must be an MP3, WAV, FLAC, M4A, AAC, OGG, or WebM audio file.'
+    end
+    errors
+  end
+
+  def render_full_show_upload_errors
+    render json: { errors: full_show_upload_errors }, status: :unprocessable_entity
+  end
+
   def s3_service
     @s3_service ||= AwsS3Service.new(ENV.fetch('AWS_BUCKET_NAME', 'radio-denver'))
   end
@@ -243,6 +319,11 @@ class Api::V1::PlaylistsController < ApplicationController
       scheduled_at: playlist.scheduled_at,
       review_notes: playlist.review_notes,
       reviewed_at: playlist.reviewed_at,
+      audio_authorized: playlist.audio_authorized,
+      metadata_confirmed: playlist.metadata_confirmed,
+      explicit_content_confirmed: playlist.explicit_content_confirmed,
+      contains_explicit_content: playlist.contains_explicit_content,
+      confirmations_recorded_at: playlist.confirmations_recorded_at,
       delivery_status: playlist.delivery_status,
       delivery_target: playlist.delivery_target,
       delivery_reference: playlist.delivery_reference,

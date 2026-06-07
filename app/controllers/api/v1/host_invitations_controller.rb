@@ -17,6 +17,12 @@ class Api::V1::HostInvitationsController < ApplicationController
     end
   end
 
+  def revoke
+    invitation = HostInvitation.active.find(params[:id])
+    invitation.update!(revoked_at: Time.current)
+    render json: serialize_invitation(invitation)
+  end
+
   private
 
   def invitation_params
@@ -32,6 +38,7 @@ class Api::V1::HostInvitationsController < ApplicationController
       status: invitation.status,
       expires_at: invitation.expires_at,
       used_at: invitation.used_at,
+      revoked_at: invitation.revoked_at,
       invited_by: invitation.invited_by&.email,
       used_by: invitation.used_by&.email,
       created_at: invitation.created_at

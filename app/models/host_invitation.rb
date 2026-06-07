@@ -7,7 +7,7 @@ class HostInvitation < ApplicationRecord
   validates :code, presence: true, uniqueness: true
 
   scope :unused, -> { where(used_at: nil, used_by_id: nil) }
-  scope :active, -> { unused.where('expires_at IS NULL OR expires_at > ?', Time.current) }
+  scope :active, -> { unused.where(revoked_at: nil).where('expires_at IS NULL OR expires_at > ?', Time.current) }
 
   def self.find_usable(code, email: nil)
     invitation = active.find_by(code: normalize_code(code))
@@ -30,6 +30,7 @@ class HostInvitation < ApplicationRecord
 
   def status
     return 'used' if used?
+    return 'revoked' if revoked_at.present?
     return 'expired' if expired?
 
     'active'

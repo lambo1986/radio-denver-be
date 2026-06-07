@@ -4,6 +4,18 @@ RSpec.describe 'Station review workflow', type: :request do
   let(:admin) { create(:user, :admin) }
   let(:headers) { { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: admin.id)}" } }
 
+  def add_valid_track(playlist, duration: 1800)
+    create(:song, playlist: playlist, duration: duration, file_url: 'https://example.com/show-track.mp3')
+  end
+
+  def confirm_submission(playlist)
+    playlist.update!(
+      audio_authorized: true,
+      metadata_confirmed: true,
+      explicit_content_confirmed: true
+    )
+  end
+
   describe 'GET /api/v1/playlists?scope=station' do
     it 'returns submitted and station-side shows' do
       submitted = create(:playlist, status: 'submitted')
@@ -51,11 +63,23 @@ RSpec.describe 'Station review workflow', type: :request do
   describe 'PATCH /api/v1/playlists/:id/mark_ready' do
     it 'marks a submitted show ready' do
       playlist = create(:playlist, status: 'submitted')
+      add_valid_track(playlist)
+      confirm_submission(playlist)
 
       patch "/api/v1/playlists/#{playlist.id}/mark_ready", headers: headers
 
       expect(response).to have_http_status(:ok)
       expect(JSON.parse(response.body)['status']).to eq('ready')
+    end
+
+    it 'rejects an empty submitted show' do
+      playlist = create(:playlist, status: 'submitted')
+
+      patch "/api/v1/playlists/#{playlist.id}/mark_ready", headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors']).to include('Add a full-show file or at least one lineup track.')
+      expect(playlist.reload.status).to eq('submitted')
     end
 
     it 'rejects hosts' do
@@ -67,6 +91,31 @@ RSpec.describe 'Station review workflow', type: :request do
 
       expect(response).to have_http_status(:forbidden)
       expect(JSON.parse(response.body)['error']).to eq('Admin access required')
+    end
+  end
+
+  describe 'host submission confirmations' do
+    it 'rejects submission without all confirmations' do
+      playlist = create(:playlist, status: 'draft')
+      add_valid_track(playlist)
+      host_headers = { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: playlist.user_id)}" }
+
+      patch "/api/v1/playlists/#{playlist.id}",
+            params: {
+              playlist: {
+                name: playlist.name,
+                description: playlist.description,
+                host_name: playlist.host_name,
+                status: 'submitted',
+                audio_authorized: true,
+                metadata_confirmed: false,
+                explicit_content_confirmed: true
+              }
+            },
+            headers: host_headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('Confirm audio permission')
     end
   end
 
@@ -133,9 +182,10 @@ RSpec.describe 'Station review workflow', type: :request do
   describe 'PATCH /api/v1/playlists/:id/schedule' do
     it 'schedules a ready show' do
       playlist = create(:playlist, status: 'ready')
+      add_valid_track(playlist)
 
       patch "/api/v1/playlists/#{playlist.id}/schedule",
-            params: { playlist: { scheduled_at: '2026-05-27T20:00:00Z' } },
+            params: { playlist: { scheduled_at: '2026-06-27T20:00:00Z' } },
             headers: headers
 
       expect(response).to have_http_status(:ok)
@@ -143,11 +193,52 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(body['status']).to eq('scheduled')
       expect(body['scheduled_at']).to be_present
     end
+
+    it 'allows a show to start exactly when another show ends' do
+      existing = create(:playlist, status: 'scheduled', scheduled_at: '2026-06-27T20:00:00Z')
+      add_valid_track(existing, duration: 1800)
+      playlist = create(:playlist, status: 'ready')
+      add_valid_track(playlist, duration: 900)
+
+      patch "/api/v1/playlists/#{playlist.id}/schedule",
+            params: { playlist: { scheduled_at: '2026-06-27T20:30:00Z' } },
+            headers: headers
+
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'rejects a schedule that overlaps an existing show' do
+      existing = create(:playlist, status: 'scheduled', scheduled_at: '2026-06-27T20:00:00Z')
+      add_valid_track(existing, duration: 1800)
+      playlist = create(:playlist, status: 'ready')
+      add_valid_track(playlist, duration: 900)
+
+      patch "/api/v1/playlists/#{playlist.id}/schedule",
+            params: { playlist: { scheduled_at: '2026-06-27T20:15:00Z' } },
+            headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include(existing.name)
+      expect(playlist.reload.status).to eq('ready')
+    end
+
+    it 'rejects a show that has no playable audio' do
+      playlist = create(:playlist, status: 'ready')
+      create(:song, playlist: playlist, duration: 900, file_url: nil)
+
+      patch "/api/v1/playlists/#{playlist.id}/schedule",
+            params: { playlist: { scheduled_at: '2026-06-27T20:00:00Z' } },
+            headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('missing audio')
+    end
   end
 
   describe 'POST /api/v1/playlists/:id/deliver' do
     it 'queues a scheduled show for stream delivery' do
-      playlist = create(:playlist, status: 'scheduled')
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+      add_valid_track(playlist)
 
       post "/api/v1/playlists/#{playlist.id}/deliver",
            params: { delivery: { target: 'local_stream' } },
@@ -165,7 +256,8 @@ RSpec.describe 'Station review workflow', type: :request do
     end
 
     it 'adds AzuraCast handoff metadata when queued for AzuraCast' do
-      playlist = create(:playlist, status: 'scheduled')
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+      add_valid_track(playlist)
 
       post "/api/v1/playlists/#{playlist.id}/deliver",
            params: { delivery: { target: 'azuracast' } },
@@ -180,6 +272,18 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(provider['mode']).to eq('manual_export')
       expect(provider['recommended_playlist']).to eq('Alpine Groove Guide Shows')
       expect(provider['recommended_media_folder']).to include("melody-mixer/#{playlist.id}-")
+    end
+
+    it 'rejects delivery for an unscheduled show' do
+      playlist = create(:playlist, status: 'ready')
+      add_valid_track(playlist)
+
+      post "/api/v1/playlists/#{playlist.id}/deliver",
+           params: { delivery: { target: 'azuracast' } },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors']).to include('Only scheduled shows can be queued for delivery.')
     end
   end
 end

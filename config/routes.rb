@@ -8,7 +8,17 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       resources :audio_files, only: [:index, :show, :update, :create, :destroy]
-      resources :host_invitations, only: [:index, :create]
+      resources :host_invitations, only: [:index, :create] do
+        member do
+          patch :revoke
+        end
+      end
+      resources :station_hosts, only: [:index] do
+        member do
+          patch :suspend
+          patch :reactivate
+        end
+      end
       get 'station/schedule', to: 'playlists#public_schedule'
       resources :playlists, only: [:index, :show, :update, :create, :destroy] do
         member do

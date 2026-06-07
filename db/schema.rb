@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_06_01_010000) do
+ActiveRecord::Schema[7.1].define(version: 2026_06_07_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -47,6 +47,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_01_010000) do
     t.datetime "expires_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "revoked_at"
     t.index ["code"], name: "index_host_invitations_on_code", unique: true
     t.index ["email"], name: "index_host_invitations_on_email"
     t.index ["invited_by_id"], name: "index_host_invitations_on_invited_by_id"
@@ -71,6 +72,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_01_010000) do
     t.jsonb "delivery_manifest", default: {}, null: false
     t.text "review_notes"
     t.datetime "reviewed_at"
+    t.boolean "audio_authorized", default: false, null: false
+    t.boolean "metadata_confirmed", default: false, null: false
+    t.boolean "explicit_content_confirmed", default: false, null: false
+    t.boolean "contains_explicit_content", default: false, null: false
+    t.datetime "confirmations_recorded_at"
     t.index ["delivery_status"], name: "index_playlists_on_delivery_status"
     t.index ["full_show_audio_file_id"], name: "index_playlists_on_full_show_audio_file_id"
     t.index ["status"], name: "index_playlists_on_status"
@@ -107,6 +113,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_01_010000) do
     t.string "reset_password_token"
     t.datetime "reset_password_sent_at"
     t.string "role", default: "host", null: false
+    t.string "account_status", default: "active", null: false
+    t.index ["account_status"], name: "index_users_on_account_status"
     t.index ["role"], name: "index_users_on_role"
   end
 

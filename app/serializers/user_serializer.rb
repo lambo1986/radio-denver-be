@@ -9,5 +9,6 @@ class UserSerializer
              :description,
              :profile_image,
              :phone_number,
-             :role
+             :role,
+             :account_status
 end

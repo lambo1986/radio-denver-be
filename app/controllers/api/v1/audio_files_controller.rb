@@ -19,6 +19,10 @@ class Api::V1::AudioFilesController < ApplicationController
 
   def create
     @audio_file = @current_user.audio_files.build(audio_file_params.except(:file))
+    apply_file_metadata(@audio_file, audio_file_params[:file])
+    upload_errors = uploaded_file_errors(audio_file_params[:file])
+    return render json: { errors: upload_errors }, status: :unprocessable_entity if upload_errors.any?
+
     apply_uploaded_file(@audio_file, audio_file_params[:file])
 
     if @audio_file.save
@@ -79,6 +83,26 @@ class Api::V1::AudioFilesController < ApplicationController
     audio_file.title = File.basename(uploaded_file.original_filename, '.*') if audio_file.title.blank?
     audio_file.size = uploaded_file.size if audio_file.size.blank?
     audio_file.content_type = uploaded_file.content_type
+  end
+
+  def apply_file_metadata(audio_file, uploaded_file)
+    return unless uploaded_file.present?
+
+    audio_file.name = uploaded_file.original_filename if audio_file.name.blank?
+    audio_file.title = File.basename(uploaded_file.original_filename, '.*') if audio_file.title.blank?
+    audio_file.size = uploaded_file.size if audio_file.size.blank?
+    audio_file.content_type = uploaded_file.content_type
+  end
+
+  def uploaded_file_errors(uploaded_file)
+    return ['Choose an audio file to upload.'] if uploaded_file.blank?
+
+    errors = []
+    errors << 'Audio file is too large. Maximum size is 500 MB.' if uploaded_file.size > AudioFile::MAX_UPLOAD_SIZE
+    unless AudioFile::SUPPORTED_CONTENT_TYPES.include?(uploaded_file.content_type)
+      errors << 'Choose an MP3, WAV, FLAC, M4A, AAC, OGG, or WebM audio file.'
+    end
+    errors
   end
 
   def delete_from_s3(object_key)

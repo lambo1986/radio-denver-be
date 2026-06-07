@@ -162,6 +162,6 @@ class StreamDeliveryService
   end
 
   def total_duration_seconds
-    playlist.songs.sum(:duration).to_i
+    playlist.duration_seconds
   end
 end
