@@ -1,13 +1,14 @@
 class Api::V1::AudioFilesController < ApplicationController
   before_action :authenticate_request
-  before_action :set_audio_file, only: [:show, :update, :destroy]
+  before_action :set_visible_audio_file, only: :show
+  before_action :set_owned_audio_file, only: [:update, :destroy]
 
   def index
     nested_user_scope = params[:user_id].present? || params[:scope] == 'mine'
     @audio_files = if nested_user_scope
-                     @current_user.audio_files.order(created_at: :asc)
+                     @current_user.audio_files.includes(:user).order(created_at: :asc)
                    else
-                     AudioFile.library_visible.or(AudioFile.owned_by(@current_user)).order(created_at: :desc)
+                     AudioFile.library_visible.or(AudioFile.owned_by(@current_user)).includes(:user).order(created_at: :desc)
                    end
 
     render json: @audio_files.map { |audio_file| serialize_audio_file(audio_file) }
@@ -19,26 +20,31 @@ class Api::V1::AudioFilesController < ApplicationController
 
   def create
     @audio_file = @current_user.audio_files.build(audio_file_params.except(:file))
+    @audio_file.visibility = default_visibility_for(@audio_file.kind) unless audio_file_params.key?(:visibility)
     apply_file_metadata(@audio_file, audio_file_params[:file])
     upload_errors = uploaded_file_errors(audio_file_params[:file])
     return render json: { errors: upload_errors }, status: :unprocessable_entity if upload_errors.any?
 
-    apply_uploaded_file(@audio_file, audio_file_params[:file])
+    upload = apply_uploaded_file(@audio_file, audio_file_params[:file])
 
     if @audio_file.save
       render json: serialize_audio_file(@audio_file), status: :created
     else
+      delete_from_s3(upload[:key]) if upload
       render json: { errors: @audio_file.errors.full_messages }, status: :unprocessable_entity
     end
   end
 
   def update
+    previous_s3_key = @audio_file.s3_key
     @audio_file.assign_attributes(audio_file_params.except(:file))
-    apply_uploaded_file(@audio_file, audio_file_params[:file])
+    upload = apply_uploaded_file(@audio_file, audio_file_params[:file])
 
     if @audio_file.save
+      delete_from_s3(previous_s3_key) if upload && previous_s3_key.present? && previous_s3_key != upload[:key]
       render json: serialize_audio_file(@audio_file)
     else
+      delete_from_s3(upload[:key]) if upload
       render json: { errors: @audio_file.errors.full_messages }, status: :unprocessable_entity
     end
   end
@@ -51,8 +57,19 @@ class Api::V1::AudioFilesController < ApplicationController
 
   private
 
-  def set_audio_file
+  def set_visible_audio_file
     @audio_file = AudioFile.library_visible.or(AudioFile.owned_by(@current_user)).find(params[:id])
+  end
+
+  def set_owned_audio_file
+    @audio_file = @current_user.audio_files.find_by(id: params[:id])
+    return if @audio_file.present?
+
+    render json: { error: 'Audio file not found' }, status: :not_found
+  end
+
+  def default_visibility_for(kind)
+    kind == 'full_show' ? 'private' : 'shared'
   end
 
   def audio_file_params
@@ -83,6 +100,7 @@ class Api::V1::AudioFilesController < ApplicationController
     audio_file.title = File.basename(uploaded_file.original_filename, '.*') if audio_file.title.blank?
     audio_file.size = uploaded_file.size if audio_file.size.blank?
     audio_file.content_type = uploaded_file.content_type
+    upload
   end
 
   def apply_file_metadata(audio_file, uploaded_file)
@@ -133,6 +151,8 @@ class Api::V1::AudioFilesController < ApplicationController
       visibility: audio_file.visibility,
       explicit: audio_file.explicit,
       notes: audio_file.notes,
+      owner_name: audio_file.user.host_name.presence || audio_file.user.full_name,
+      owned_by_current_user: audio_file.user_id == @current_user.id,
       created_at: audio_file.created_at
     }
   end

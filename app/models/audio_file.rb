@@ -43,7 +43,7 @@ class AudioFile < ApplicationRecord
   private
 
   def set_defaults
-    self.visibility ||= 'private'
     self.kind ||= 'track'
+    self.visibility ||= kind == 'full_show' ? 'private' : 'shared'
   end
 end

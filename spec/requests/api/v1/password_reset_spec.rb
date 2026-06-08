@@ -13,7 +13,7 @@ RSpec.describe 'Password Resets', type: :request do
         json = JSON.parse(response.body)
 
         expect(response).to have_http_status(:ok)
-        expect(json['message']).to eq('Email sent with password reset instructions')
+        expect(json['message']).to include('password reset instructions')
         expect(user.reload.reset_password_token).not_to be_nil
         expect(ActionMailer::Base.deliveries.last.body.encoded).to include('/reset-password?token=')
         expect(ActionMailer::Base.deliveries.last.body.encoded).to include(ERB::Util.url_encode(user.email))
@@ -21,14 +21,31 @@ RSpec.describe 'Password Resets', type: :request do
     end
 
     context 'when the email is not valid' do
-      it 'returns an error message' do
+      it 'returns the same response without revealing account existence' do
         post '/api/v1/password_resets', params: { email: 'nonexistent@example.com' }
 
         json = JSON.parse(response.body)
 
-        expect(response).to have_http_status(:not_found)
-        expect(json['error']).to eq('Email address not found')
+        expect(response).to have_http_status(:ok)
+        expect(json['message']).to include('password reset instructions')
+        expect(ActionMailer::Base.deliveries).to be_empty
       end
+    end
+
+    it 'matches email addresses case-insensitively' do
+      post '/api/v1/password_resets', params: { email: "  #{user.email.upcase} " }
+
+      expect(response).to have_http_status(:ok)
+      expect(user.reload.reset_password_token).to be_present
+    end
+
+    it 'rate limits repeated requests for one email address' do
+      3.times { post '/api/v1/password_resets', params: { email: user.email } }
+
+      post '/api/v1/password_resets', params: { email: user.email.upcase }
+
+      expect(response).to have_http_status(:too_many_requests)
+      expect(response.headers['Retry-After']).to be_present
     end
   end
 

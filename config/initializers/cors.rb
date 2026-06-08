@@ -1,7 +1,16 @@
-# config/initializers/cors.rb
+configured_origins = ENV.fetch('FRONTEND_ORIGINS', '').split(',').map(&:strip).reject(&:blank?)
+
+if configured_origins.empty?
+  if Rails.env.production?
+    raise 'FRONTEND_ORIGINS must list the allowed production frontend origin(s).'
+  end
+
+  configured_origins = ['http://localhost:3000']
+end
+
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    origins 'http://localhost:3000', 'http://localhost:3001'
+    origins(*configured_origins)
 
     resource '*',
       headers: :any,

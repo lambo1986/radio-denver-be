@@ -98,5 +98,70 @@ RSpec.describe 'Playlist show builder', type: :request do
       expect(JSON.parse(response.body)['errors'].join).to include('Full show must be')
       expect(service).not_to have_received(:upload_uploaded_file)
     end
+
+    it 'cleans up a full-show upload when submission validation fails' do
+      upload = { key: 'full_shows/test/rejected.mp3', url: 'https://example.com/rejected.mp3' }
+      service = instance_double(AwsS3Service, upload_uploaded_file: upload, delete_file: true)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+      file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'audio/mp3')
+
+      expect do
+        post '/api/v1/playlists',
+             params: {
+               playlist: {
+                 name: 'Unconfirmed Show',
+                 description: 'Missing confirmations',
+                 host_name: user.host_name,
+                 status: 'submitted',
+                 full_show_file: file,
+                 full_show_duration: 1800
+               }
+             },
+             headers: headers
+      end.not_to change(AudioFile, :count)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(service).to have_received(:delete_file).with(upload[:key])
+    end
+  end
+
+  describe 'PATCH /api/v1/playlists/:id' do
+    it 'keeps the existing lineup when a replacement submission is invalid' do
+      playlist = create(:playlist, user: user, status: 'needs_edits')
+      original_song = create(
+        :song,
+        playlist: playlist,
+        name: 'Original Broadcast Track',
+        file_url: 'https://example.com/original.mp3'
+      )
+
+      patch "/api/v1/playlists/#{playlist.id}",
+            params: {
+              playlist: {
+                name: playlist.name,
+                description: playlist.description,
+                host_name: playlist.host_name,
+                status: 'submitted',
+                audio_authorized: true,
+                metadata_confirmed: true,
+                explicit_content_confirmed: true,
+                contains_explicit_content: false,
+                songs: [
+                  {
+                    name: 'Replacement Without Audio',
+                    artist: 'Local Artist',
+                    album: 'Single',
+                    duration: '03:15'
+                  }
+                ]
+              }
+            },
+            headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors'].join).to include('missing audio')
+      expect(playlist.reload.status).to eq('needs_edits')
+      expect(playlist.songs.reload.pluck(:id, :name)).to eq([[original_song.id, 'Original Broadcast Track']])
+    end
   end
 end

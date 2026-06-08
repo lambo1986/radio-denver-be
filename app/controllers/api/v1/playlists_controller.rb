@@ -28,34 +28,59 @@ class Api::V1::PlaylistsController < ApplicationController
     playlist = @current_user.playlists.build(playlist_attributes)
     return render_full_show_upload_errors if full_show_upload_errors.any?
 
-    attach_full_show_file(playlist)
+    uploaded_full_show = attach_full_show_file(playlist)
     build_songs(playlist)
-    return render_submission_errors(playlist) if playlist.status == 'submitted' && submission_errors(playlist).any?
+    if playlist.status == 'submitted' && submission_errors(playlist).any?
+      cleanup_full_show_upload(uploaded_full_show)
+      return render_submission_errors(playlist)
+    end
 
     if playlist.save
       render json: serialize_playlist(playlist), status: :created
     else
+      cleanup_full_show_upload(uploaded_full_show)
       render json: { errors: playlist.errors.full_messages }, status: :unprocessable_entity
     end
   end
 
   def update
-    @playlist.assign_attributes(playlist_attributes)
     return render_full_show_upload_errors if full_show_upload_errors.any?
 
-    attach_full_show_file(@playlist)
+    update_errors = nil
+    updated = false
+    previous_full_show = @playlist.full_show_audio_file
+    uploaded_full_show = nil
 
-    if playlist_params[:songs].present?
-      @playlist.songs.destroy_all
-      build_songs(@playlist)
+    ActiveRecord::Base.transaction do
+      @playlist.assign_attributes(playlist_attributes)
+      uploaded_full_show = attach_full_show_file(@playlist)
+
+      if playlist_params[:songs].present?
+        @playlist.songs.destroy_all
+        build_songs(@playlist)
+      end
+
+      update_errors = submission_errors(@playlist) if @playlist.status == 'submitted'
+      update_errors = @playlist.errors.full_messages unless update_errors.present? || @playlist.save
+
+      if update_errors.present?
+        raise ActiveRecord::Rollback
+      else
+        updated = true
+      end
     end
-    return render_submission_errors(@playlist) if @playlist.status == 'submitted' && submission_errors(@playlist).any?
 
-    if @playlist.save
+    if updated
+      cleanup_replaced_full_show(previous_full_show, uploaded_full_show)
       render json: serialize_playlist(@playlist)
     else
-      render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
+      cleanup_full_show_upload(uploaded_full_show, destroy_record: false)
+      @playlist.reload
+      render json: { errors: update_errors }, status: :unprocessable_entity
     end
+  rescue StandardError
+    cleanup_full_show_upload(uploaded_full_show, destroy_record: false)
+    raise
   end
 
   def destroy
@@ -270,6 +295,30 @@ class Api::V1::PlaylistsController < ApplicationController
     audio_file.url = upload[:url]
     audio_file.save!
     playlist.full_show_audio_file = audio_file
+    audio_file
+  rescue StandardError
+    s3_service.delete_file(upload[:key]) if upload&.dig(:key)
+    raise
+  end
+
+  def cleanup_full_show_upload(audio_file, destroy_record: true)
+    return unless audio_file
+
+    begin
+      s3_service.delete_file(audio_file.s3_key) if audio_file.s3_key.present?
+    rescue StandardError => error
+      Rails.logger.error("Full-show S3 cleanup failed for #{audio_file.s3_key}: #{error.message}")
+    ensure
+      audio_file.destroy if destroy_record && audio_file.persisted?
+    end
+  end
+
+  def cleanup_replaced_full_show(previous_audio_file, new_audio_file)
+    return unless previous_audio_file && new_audio_file
+    return if previous_audio_file.id == new_audio_file.id
+    return if Playlist.where(full_show_audio_file_id: previous_audio_file.id).exists?
+
+    cleanup_full_show_upload(previous_audio_file)
   end
 
   def owned_or_shared_audio_file_id(audio_file_id)
@@ -371,11 +420,7 @@ class Api::V1::PlaylistsController < ApplicationController
       status: playlist.status,
       scheduled_at: playlist.scheduled_at,
       delivery_status: playlist.delivery_status,
-      delivery_reference: playlist.delivery_reference,
       full_show_audio_file: playlist.full_show_audio_file && {
-        id: playlist.full_show_audio_file.id,
-        name: playlist.full_show_audio_file.name,
-        url: playlist.full_show_audio_file.public_url,
         duration: playlist.full_show_audio_file.duration
       },
       songs: playlist.songs.map do |song|

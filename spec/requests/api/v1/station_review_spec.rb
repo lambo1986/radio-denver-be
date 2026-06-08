@@ -48,6 +48,8 @@ RSpec.describe 'Station review workflow', type: :request do
   describe 'GET /api/v1/station/schedule' do
     it 'returns scheduled public shows without authentication' do
       scheduled = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+      full_show = create(:audio_file, user: scheduled.user, kind: 'full_show', duration: 1800)
+      scheduled.update!(full_show_audio_file: full_show, delivery_reference: 'private-package-reference')
       create(:playlist, status: 'submitted')
 
       get '/api/v1/station/schedule'
@@ -57,6 +59,8 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(body.length).to eq(1)
       expect(body.first['name']).to eq(scheduled.name)
       expect(body.first).not_to have_key('review_notes')
+      expect(body.first).not_to have_key('delivery_reference')
+      expect(body.first['full_show_audio_file']).to eq('duration' => 1800)
     end
   end
 
@@ -274,8 +278,14 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(body['delivery_target']).to eq('local_stream')
       expect(body['delivery_reference']).to start_with("mmn-show-#{playlist.id}-")
       expect(body['delivery_manifest']['station']).to eq('Alpine Groove Guide')
+      expect(body['delivery_manifest']['version']).to eq(2)
       expect(body['delivery_manifest']['show']['id']).to eq(playlist.id)
+      expect(body['delivery_manifest']['show']['package_mode']).to eq('ordered_assets')
       expect(body['delivery_manifest']['assets']).to be_an(Array)
+      expect(body['delivery_manifest']['playout'].first).to include(
+        'start_offset_seconds' => 0,
+        'end_offset_seconds' => body['delivery_manifest']['playout'].first['duration_seconds']
+      )
       expect(body['delivered_at']).to be_present
     end
 

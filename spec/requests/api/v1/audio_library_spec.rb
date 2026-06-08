@@ -19,6 +19,18 @@ RSpec.describe 'Audio library', type: :request do
       expect(titles).to include(shared.title)
       expect(titles).not_to include('Other Private Track')
     end
+
+    it 'includes uploader identity and current-user ownership' do
+      own_track = create(:audio_file, user: user, visibility: 'shared')
+      other_track = create(:audio_file, user: create(:user, host_name: 'Night Selector'), visibility: 'shared')
+
+      get '/api/v1/audio_files', headers: headers
+
+      body = JSON.parse(response.body).index_by { |audio_file| audio_file['id'] }
+      expect(body[own_track.id]['owned_by_current_user']).to be(true)
+      expect(body[other_track.id]['owned_by_current_user']).to be(false)
+      expect(body[other_track.id]['owner_name']).to eq('Night Selector')
+    end
   end
 
   describe 'POST /api/v1/audio_files' do
@@ -71,6 +83,36 @@ RSpec.describe 'Audio library', type: :request do
       expect(JSON.parse(response.body)['errors'].join).to include('Choose an MP3')
       expect(service).not_to have_received(:upload_uploaded_file)
     end
+
+    it 'shares new tracks with the station when visibility is omitted' do
+      upload = { key: 'audio_files/test/shared.mp3', url: 'https://example.com/shared.mp3' }
+      service = instance_double(AwsS3Service, upload_uploaded_file: upload, get_file_url: upload[:url])
+      allow(AwsS3Service).to receive(:new).and_return(service)
+      file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'audio/mp3')
+
+      post '/api/v1/audio_files',
+           params: { audio_file: { title: 'Station Track', artist: 'Local Artist', kind: 'track', file: file } },
+           headers: headers
+
+      expect(response).to have_http_status(:created)
+      expect(JSON.parse(response.body)['visibility']).to eq('shared')
+    end
+
+    it 'deletes the uploaded object when the database record is invalid' do
+      upload = { key: 'audio_files/test/rejected.mp3', url: 'https://example.com/rejected.mp3' }
+      service = instance_double(AwsS3Service, upload_uploaded_file: upload, delete_file: true)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+      file = fixture_file_upload(Rails.root.join('spec', 'fixtures', 'files', 'test_file.mp3'), 'audio/mp3')
+
+      expect do
+        post '/api/v1/audio_files',
+             params: { audio_file: { title: 'Rejected', artist: 'Artist', visibility: 'invalid', file: file } },
+             headers: headers
+      end.not_to change(AudioFile, :count)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(service).to have_received(:delete_file).with(upload[:key])
+    end
   end
 
   describe 'PATCH /api/v1/audio_files/:id' do
@@ -98,6 +140,17 @@ RSpec.describe 'Audio library', type: :request do
       expect(body['genre']).to eq('Jazz')
       expect(body['duration']).to eq(241)
       expect(body['notes']).to eq('Clean metadata')
+    end
+
+    it 'does not let another host edit a shared track' do
+      shared_track = create(:audio_file, user: create(:user), visibility: 'shared')
+
+      patch "/api/v1/audio_files/#{shared_track.id}",
+            params: { audio_file: { title: 'Taken Over' } },
+            headers: headers
+
+      expect(response).to have_http_status(:not_found)
+      expect(shared_track.reload.title).not_to eq('Taken Over')
     end
   end
 end

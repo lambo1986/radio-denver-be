@@ -35,5 +35,16 @@ bundle exec rspec
 rails server
 ```
 
-* Nathan Lambertson
+## Production Configuration
 
+Set the allowed frontend origin before booting Rails in production:
+
+```env
+FRONTEND_ORIGINS=https://app.example.com
+```
+
+Multiple trusted frontends can be provided as a comma-separated list. Do not use `*` because the API uses credentialed sessions.
+
+Login and password-reset throttles currently use an in-process memory store. This is appropriate for the single-process MVP. Configure a shared Redis-backed limiter before running multiple Rails instances.
+
+* Nathan Lambertson

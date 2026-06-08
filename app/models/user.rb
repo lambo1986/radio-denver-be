@@ -7,7 +7,7 @@ class User < ApplicationRecord
   validates :first_name, presence: true
   validates :last_name, presence: true
   validates :phone_number, length: { minimum: 10, maximum: 15 }, allow_blank: true
-  validates :email, presence: true, uniqueness: true
+  validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :password_digest, presence: true
   validates :role, inclusion: { in: ROLES }
   validates :account_status, inclusion: { in: ACCOUNT_STATUSES }
@@ -17,7 +17,12 @@ class User < ApplicationRecord
   has_many :sent_host_invitations, class_name: 'HostInvitation', foreign_key: :invited_by_id, dependent: :nullify
   has_one :accepted_host_invitation, class_name: 'HostInvitation', foreign_key: :used_by_id, dependent: :nullify
 
+  before_validation :normalize_email
   before_validation :set_default_role
+
+  def self.find_by_email(email)
+    find_by(email: email.to_s.strip.downcase)
+  end
 
   def admin?
     role == 'admin'
@@ -25,6 +30,10 @@ class User < ApplicationRecord
 
   def active?
     account_status == 'active'
+  end
+
+  def full_name
+    [first_name, last_name].compact.join(' ').strip
   end
 
   def generate_password_token!
@@ -50,6 +59,10 @@ class User < ApplicationRecord
   end
 
   private
+
+  def normalize_email
+    self.email = email.to_s.strip.downcase.presence
+  end
 
   def set_default_role
     self.role ||= 'host'

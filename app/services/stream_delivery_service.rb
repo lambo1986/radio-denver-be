@@ -1,5 +1,5 @@
 class StreamDeliveryService
-  MANIFEST_VERSION = 1
+  MANIFEST_VERSION = 2
 
   def initialize(playlist, target: 'local_queue')
     @playlist = playlist
@@ -39,7 +39,8 @@ class StreamDeliveryService
         host_name: playlist.host_name,
         scheduled_at: playlist.scheduled_at&.iso8601,
         status: playlist.status,
-        total_duration_seconds: total_duration_seconds
+        total_duration_seconds: total_duration_seconds,
+        package_mode: playlist.full_show_audio_file.present? ? 'single_master' : 'ordered_assets'
       },
       assets: audio_assets,
       playout: playout_items
@@ -113,20 +114,33 @@ class StreamDeliveryService
           position: 1,
           type: 'full_show',
           title: playlist.name,
-          audio_url: playlist.full_show_audio_file.public_url
+          duration_seconds: playlist.full_show_audio_file.duration,
+          start_offset_seconds: 0,
+          end_offset_seconds: playlist.full_show_audio_file.duration,
+          audio_url: playlist.full_show_audio_file.public_url,
+          audio_file_id: playlist.full_show_audio_file.id,
+          s3_key: playlist.full_show_audio_file.s3_key
         }
       ]
     end
 
+    elapsed_seconds = 0
     playlist.songs.includes(:audio_file).map do |song|
-      {
+      duration_seconds = song.duration.to_i
+      item = {
         position: song.position,
         type: song.audio_file&.kind || 'track',
         title: song.name,
         artist: song.artist,
-        duration_seconds: song.duration,
-        audio_url: song.audio_file&.public_url || song.file_url
+        duration_seconds: duration_seconds,
+        start_offset_seconds: elapsed_seconds,
+        end_offset_seconds: elapsed_seconds + duration_seconds,
+        audio_url: song.audio_file&.public_url || song.file_url,
+        audio_file_id: song.audio_file_id,
+        s3_key: song.audio_file&.s3_key
       }
+      elapsed_seconds = item[:end_offset_seconds]
+      item
     end
   end
 
