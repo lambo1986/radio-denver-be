@@ -14,6 +14,7 @@ RSpec.describe "user login", type: :request do
 
       expect(response.status).to eq(200)
       expect(json_response["data"]["id"]).to eq(user1.id.to_s)
+      expect(JsonWebTokenService.decode(json_response["token"])[:user_id]).to eq(user1.id)
     end
 
     it "matches email addresses case-insensitively" do

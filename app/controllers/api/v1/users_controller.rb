@@ -25,7 +25,10 @@ class Api::V1::UsersController < ApplicationController
     user = User.new(user_params)
     if user.save
       invitation.use!(user)
-      render json: UserSerializer.new(user).serializable_hash.to_json, status: :created
+      session[:user_id] = user.id
+      render json: UserSerializer.new(user).serializable_hash.merge(
+        token: JsonWebTokenService.encode(user_id: user.id, exp: 30.days.from_now.to_i)
+      ), status: :created
     else
       render json: { errors: user.errors.full_messages }, status: :unprocessable_entity
     end

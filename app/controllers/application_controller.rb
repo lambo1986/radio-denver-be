@@ -11,7 +11,7 @@ class ApplicationController < ActionController::Base
       reset_session if session[:user_id].present?
       render json: { error: 'This host account is paused. Contact the station admin for help.' }, status: :forbidden
     end
-  rescue RuntimeError
+  rescue RuntimeError, JWT::DecodeError
     render json: { error: 'Not Authorized' }, status: :unauthorized
   end
 

@@ -1,16 +1,18 @@
 class JsonWebTokenService
-  SECRET_KEY = 'your_secret_key'# eventually replace this with a hidden/ stronger key
-
   def self.encode(payload)
-    JWT.encode(payload, SECRET_KEY, 'HS256')
+    JWT.encode(payload, secret_key, 'HS256')
   end
 
   def self.decode(token)
-    decoded = JWT.decode(token, SECRET_KEY, true, { algorithm: 'HS256' }).first
+    decoded = JWT.decode(token, secret_key, true, { algorithm: 'HS256' }).first
     symbolized_payload = symbolize_keys(decoded)
     symbolized_payload
-  rescue JWT::ExpiredSignature, JWT::VerificationError => e
+  rescue JWT::ExpiredSignature
     nil
+  end
+
+  def self.secret_key
+    ENV.fetch('JWT_SECRET_KEY', Rails.application.secret_key_base)
   end
 
   def self.symbolize_keys(value)

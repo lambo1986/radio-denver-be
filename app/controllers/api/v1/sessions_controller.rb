@@ -15,7 +15,7 @@ class Api::V1::SessionsController < ApplicationController
       render json: { error: 'This host account is paused. Contact the station admin for help.' }, status: :forbidden
     elsif user && user.authenticate(session_params[:password])
       session[:user_id] = user.id
-      render json: UserSerializer.new(user), status: :ok
+      render json: authenticated_user_payload(user), status: :ok
     else
       record_failed_login(email)
       render json: { error: 'Invalid email or password' }, status: :unauthorized
@@ -51,5 +51,11 @@ class Api::V1::SessionsController < ApplicationController
 
   def session_params
     params.require(:session).permit(:email, :password)
+  end
+
+  def authenticated_user_payload(user)
+    UserSerializer.new(user).serializable_hash.merge(
+      token: JsonWebTokenService.encode(user_id: user.id, exp: 30.days.from_now.to_i)
+    )
   end
 end
