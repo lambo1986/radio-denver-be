@@ -1,6 +1,6 @@
 source "https://rubygems.org"
 
-ruby "3.1.4"
+ruby "3.4.9"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 7.1.3", ">= 7.1.3.2"
@@ -31,6 +31,7 @@ gem "bootsnap", require: false
 gem 'bcrypt' # authentication
 gem 'faraday' # API development
 gem 'graphql' # maybe not using? 
+gem 'jsonapi-serializer'
 gem 'aws-sdk-s3', require: false
 gem 'dotenv-rails', groups: [:development, :test]
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
@@ -53,7 +54,6 @@ group :development, :test do
   gem 'webmock'
   gem 'vcr'
   gem 'simplecov'
-  gem 'jsonapi-serializer'
   gem 'pry'
   gem 'pry-rails'
 end
