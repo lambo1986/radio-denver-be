@@ -23,6 +23,11 @@ class AwsS3Service
     @s3_client.delete_object(bucket: @bucket_name, key: object_key)
   end
 
+  def download_file(object_key, destination_path)
+    @s3_client.get_object(bucket: @bucket_name, key: object_key, response_target: destination_path)
+    destination_path
+  end
+
   def get_file_url(object_key)
     signer = Aws::S3::Presigner.new(client: @s3_client)
     signer.presigned_url(:get_object, bucket: @bucket_name, key: object_key, expires_in: 1.hour.to_i)

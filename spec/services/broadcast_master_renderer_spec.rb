@@ -1,0 +1,110 @@
+require 'rails_helper'
+
+RSpec.describe BroadcastMasterRenderer, type: :service do
+  let(:playlist) { create(:playlist, status: 'ready', name: 'Midnight Brass', host_name: 'Brother Frequency') }
+  let(:s3_service) { instance_double(AwsS3Service, upload_file: true, delete_file: true) }
+  let(:downloader) { instance_double(AudioSourceDownloader) }
+  let(:command_runner) { class_double(Open3) }
+  let(:successful_status) { instance_double(Process::Status, success?: true) }
+
+  before do
+    allow(downloader).to receive(:download) do |_source, destination|
+      File.binwrite(destination, 'source audio')
+    end
+    allow(command_runner).to receive(:capture3) do |*arguments|
+      File.binwrite(arguments.last, 'rendered audio')
+      ['', '', successful_status]
+    end
+  end
+
+  it 'normalizes lineup assets in order and creates a broadcast MP3' do
+    second_audio = create(:audio_file, user: playlist.user, name: 'song.flac', s3_key: 'audio/song.flac', kind: 'track')
+    first_audio = create(:audio_file, user: playlist.user, name: 'intro.wav', s3_key: 'audio/intro.wav', kind: 'host_break')
+    create(:song, playlist: playlist, audio_file: second_audio, name: 'Song', position: 2, duration: 180)
+    create(:song, playlist: playlist, audio_file: first_audio, name: 'Intro', position: 1, duration: 30)
+
+    described_class.new(
+      playlist,
+      s3_service: s3_service,
+      downloader: downloader,
+      command_runner: command_runner
+    ).render
+
+    expect(downloader).to have_received(:download).with(hash_including(s3_key: 'audio/intro.wav'), anything).ordered
+    expect(downloader).to have_received(:download).with(hash_including(s3_key: 'audio/song.flac'), anything).ordered
+
+    expect(command_runner).to have_received(:capture3).with(
+      'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', anything, '-vn',
+      '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+      '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', anything
+    ).twice
+    expect(command_runner).to have_received(:capture3).with(
+      'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'concat', '-safe', '0', '-i', anything, '-vn',
+      '-c:a', 'libmp3lame', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+      '-metadata', 'title=Midnight Brass', '-metadata', 'artist=Brother Frequency', anything
+    )
+
+    master = playlist.reload.rendered_master_audio_file
+    expect(playlist.render_status).to eq('ready')
+    expect(playlist.rendered_at).to be_present
+    expect(master.name).to eq('midnight-brass-broadcast-master.mp3')
+    expect(master.content_type).to eq('audio/mpeg')
+    expect(master.kind).to eq('full_show')
+    expect(master.duration).to eq(210)
+    expect(s3_service).to have_received(:upload_file).with(anything, %r{\Abroadcast_masters/#{playlist.id}/})
+  end
+
+  it 'normalizes a complete-show upload as a single source' do
+    full_show = create(:audio_file, user: playlist.user, kind: 'full_show', duration: 900, s3_key: 'full_shows/show.m4a', name: 'show.m4a')
+    playlist.update!(full_show_audio_file: full_show)
+
+    described_class.new(
+      playlist,
+      s3_service: s3_service,
+      downloader: downloader,
+      command_runner: command_runner
+    ).render
+
+    expect(downloader).to have_received(:download).once.with(hash_including(s3_key: 'full_shows/show.m4a'), anything)
+    expect(playlist.reload.rendered_master_audio_file.duration).to eq(900)
+  end
+
+  it 'replaces and cleans up an older rendered master' do
+    source = create(:audio_file, user: playlist.user)
+    old_master = create(:audio_file, user: playlist.user, kind: 'full_show', s3_key: 'broadcast_masters/old.mp3')
+    create(:song, playlist: playlist, audio_file: source, duration: 120)
+    playlist.update!(rendered_master_audio_file: old_master, render_status: 'ready')
+
+    described_class.new(
+      playlist,
+      s3_service: s3_service,
+      downloader: downloader,
+      command_runner: command_runner
+    ).render
+
+    expect(s3_service).to have_received(:delete_file).with('broadcast_masters/old.mp3')
+    expect(AudioFile.exists?(old_master.id)).to be(false)
+  end
+
+  it 'records a useful failure when FFmpeg cannot process audio' do
+    source = create(:audio_file, user: playlist.user)
+    create(:song, playlist: playlist, audio_file: source, duration: 120)
+    failed_status = instance_double(Process::Status, success?: false)
+    allow(command_runner).to receive(:capture3).and_return(['', 'Invalid audio stream', failed_status])
+
+    expect do
+      described_class.new(
+        playlist,
+        s3_service: s3_service,
+        downloader: downloader,
+        command_runner: command_runner
+      ).render
+    end.to raise_error(BroadcastMasterRenderer::RenderError, /FFmpeg could not process/)
+
+    expect(playlist.reload.render_status).to eq('failed')
+    expect(playlist.render_error).to include('Invalid audio stream')
+    expect(playlist.rendered_master_audio_file).to be_nil
+  end
+end

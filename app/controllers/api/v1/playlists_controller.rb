@@ -2,8 +2,8 @@ class Api::V1::PlaylistsController < ApplicationController
   skip_before_action :verify_authenticity_token, only: :public_schedule
   before_action :authenticate_request, except: :public_schedule
   before_action :set_playlist, only: [:show, :update, :destroy]
-  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :deliver]
-  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :deliver]
+  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver]
+  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver]
 
   def index
     playlists = playlist_scope.includes(:full_show_audio_file, songs: :audio_file).order(created_at: :desc)
@@ -49,6 +49,7 @@ class Api::V1::PlaylistsController < ApplicationController
     update_errors = nil
     updated = false
     previous_full_show = @playlist.full_show_audio_file
+    previous_rendered_master = @playlist.rendered_master_audio_file
     uploaded_full_show = nil
 
     ActiveRecord::Base.transaction do
@@ -72,6 +73,7 @@ class Api::V1::PlaylistsController < ApplicationController
 
     if updated
       cleanup_replaced_full_show(previous_full_show, uploaded_full_show)
+      invalidate_rendered_master(previous_rendered_master)
       render json: serialize_playlist(@playlist)
     else
       cleanup_full_show_upload(uploaded_full_show, destroy_record: false)
@@ -109,6 +111,7 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def reopen_for_edits
+    previous_rendered_master = @playlist.rendered_master_audio_file
     if @playlist.update(
       status: 'needs_edits',
       scheduled_at: nil,
@@ -117,9 +120,14 @@ class Api::V1::PlaylistsController < ApplicationController
       delivery_reference: nil,
       delivery_manifest: {},
       delivered_at: nil,
+      rendered_master_audio_file: nil,
+      render_status: 'not_rendered',
+      render_error: nil,
+      rendered_at: nil,
       review_notes: review_params[:review_notes],
       reviewed_at: Time.current
     )
+      cleanup_audio_file(previous_rendered_master)
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -161,6 +169,15 @@ class Api::V1::PlaylistsController < ApplicationController
 
     delivered_playlist = StreamDeliveryService.new(@playlist, target: delivery_params[:target]).deliver
     render json: serialize_playlist(delivered_playlist)
+  end
+
+  def render_master
+    return render_transition_error('Only ready or scheduled shows can be rendered.') unless %w[ready scheduled].include?(@playlist.status)
+    return render_readiness_errors if @playlist.readiness_issues.any?
+
+    @playlist.update!(render_status: 'rendering', render_error: nil)
+    RenderBroadcastMasterJob.perform_later(@playlist.id)
+    render json: serialize_playlist(@playlist), status: :accepted
   end
 
   private
@@ -321,6 +338,27 @@ class Api::V1::PlaylistsController < ApplicationController
     cleanup_full_show_upload(previous_audio_file)
   end
 
+  def invalidate_rendered_master(audio_file)
+    return unless audio_file
+
+    @playlist.update_columns(
+      rendered_master_audio_file_id: nil,
+      render_status: 'not_rendered',
+      render_error: nil,
+      rendered_at: nil
+    )
+    cleanup_audio_file(audio_file)
+  end
+
+  def cleanup_audio_file(audio_file)
+    return unless audio_file
+
+    s3_service.delete_file(audio_file.s3_key) if audio_file.s3_key.present?
+    audio_file.destroy!
+  rescue StandardError => error
+    Rails.logger.error("Audio cleanup failed for #{audio_file&.s3_key}: #{error.message}")
+  end
+
   def owned_or_shared_audio_file_id(audio_file_id)
     return if audio_file_id.blank?
 
@@ -378,6 +416,10 @@ class Api::V1::PlaylistsController < ApplicationController
       delivery_reference: playlist.delivery_reference,
       delivery_manifest: playlist.delivery_manifest,
       delivered_at: playlist.delivered_at,
+      render_status: playlist.render_status,
+      render_error: playlist.render_error,
+      rendered_at: playlist.rendered_at,
+      rendered_master_audio_file: serialize_master_audio_file(playlist.rendered_master_audio_file),
       full_show_audio_file: playlist.full_show_audio_file && {
         id: playlist.full_show_audio_file.id,
         name: playlist.full_show_audio_file.name,
@@ -408,6 +450,19 @@ class Api::V1::PlaylistsController < ApplicationController
         }
       end,
       created_at: playlist.created_at
+    }
+  end
+
+  def serialize_master_audio_file(audio_file)
+    return unless audio_file
+
+    {
+      id: audio_file.id,
+      name: audio_file.name,
+      url: audio_file.public_url,
+      duration: audio_file.duration,
+      content_type: audio_file.content_type,
+      size: audio_file.size
     }
   end
 

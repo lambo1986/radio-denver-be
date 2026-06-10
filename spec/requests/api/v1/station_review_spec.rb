@@ -177,6 +177,22 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(body['scheduled_at']).to be_nil
       expect(body['review_notes']).to eq('Fix durations before scheduling.')
     end
+
+    it 'removes a stale rendered master when reopening a show' do
+      playlist = create(:playlist, status: 'ready')
+      master = create(:audio_file, user: playlist.user, kind: 'full_show', s3_key: 'broadcast_masters/old.mp3')
+      playlist.update!(rendered_master_audio_file: master, render_status: 'ready', rendered_at: Time.current)
+      service = instance_double(AwsS3Service, delete_file: true)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+
+      patch "/api/v1/playlists/#{playlist.id}/reopen_for_edits", headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(playlist.reload.render_status).to eq('not_rendered')
+      expect(playlist.rendered_master_audio_file).to be_nil
+      expect(service).to have_received(:delete_file).with('broadcast_masters/old.mp3')
+      expect(AudioFile.exists?(master.id)).to be(false)
+    end
   end
 
   describe 'PATCH /api/v1/playlists/:id/reject' do
@@ -308,6 +324,29 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(provider['recommended_media_folder']).to include("human-frequency/#{playlist.id}-")
     end
 
+    it 'uses a ready rendered master as the single AzuraCast playout asset' do
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+      add_valid_track(playlist)
+      master = create(
+        :audio_file,
+        user: playlist.user,
+        kind: 'full_show',
+        duration: playlist.duration_seconds,
+        s3_key: 'broadcast_masters/show.mp3'
+      )
+      playlist.update!(rendered_master_audio_file: master, render_status: 'ready', rendered_at: Time.current)
+
+      post "/api/v1/playlists/#{playlist.id}/deliver",
+           params: { delivery: { target: 'azuracast' } },
+           headers: headers
+
+      body = JSON.parse(response.body)
+      expect(body['delivery_manifest']['show']['package_mode']).to eq('single_master')
+      expect(body['delivery_manifest']['assets'].length).to eq(1)
+      expect(body['delivery_manifest']['assets'].first['role']).to eq('broadcast_master')
+      expect(body['delivery_manifest']['playout'].first['s3_key']).to eq('broadcast_masters/show.mp3')
+    end
+
     it 'rejects delivery for an unscheduled show' do
       playlist = create(:playlist, status: 'ready')
       add_valid_track(playlist)
@@ -330,6 +369,42 @@ RSpec.describe 'Station review workflow', type: :request do
 
       expect(response).to have_http_status(:unprocessable_entity)
       expect(JSON.parse(response.body)['errors'].join).to include('missing audio')
+    end
+  end
+
+  describe 'POST /api/v1/playlists/:id/render_master' do
+    it 'queues rendering for an approved show and returns immediately' do
+      playlist = create(:playlist, status: 'ready')
+      add_valid_track(playlist)
+      allow(RenderBroadcastMasterJob).to receive(:perform_later)
+
+      post "/api/v1/playlists/#{playlist.id}/render_master", headers: headers
+
+      expect(response).to have_http_status(:accepted)
+      body = JSON.parse(response.body)
+      expect(body['render_status']).to eq('rendering')
+      expect(RenderBroadcastMasterJob).to have_received(:perform_later).with(playlist.id)
+    end
+
+    it 'prevents hosts from rendering station masters' do
+      host = create(:user)
+      playlist = create(:playlist, status: 'ready')
+      add_valid_track(playlist)
+
+      post "/api/v1/playlists/#{playlist.id}/render_master",
+           headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: host.id)}" }
+
+      expect(response).to have_http_status(:forbidden)
+    end
+
+    it 'rejects rendering a show before approval' do
+      playlist = create(:playlist, status: 'submitted')
+      add_valid_track(playlist)
+
+      post "/api/v1/playlists/#{playlist.id}/render_master", headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body)['errors']).to include('Only ready or scheduled shows can be rendered.')
     end
   end
 end

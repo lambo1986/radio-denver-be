@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_06_08_020000) do
+ActiveRecord::Schema[7.1].define(version: 2026_06_10_223000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -77,8 +77,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_08_020000) do
     t.boolean "explicit_content_confirmed", default: false, null: false
     t.boolean "contains_explicit_content", default: false, null: false
     t.datetime "confirmations_recorded_at"
+    t.bigint "rendered_master_audio_file_id"
+    t.string "render_status", default: "not_rendered", null: false
+    t.text "render_error"
+    t.datetime "rendered_at"
     t.index ["delivery_status"], name: "index_playlists_on_delivery_status"
     t.index ["full_show_audio_file_id"], name: "index_playlists_on_full_show_audio_file_id"
+    t.index ["render_status"], name: "index_playlists_on_render_status"
+    t.index ["rendered_master_audio_file_id"], name: "index_playlists_on_rendered_master_audio_file_id"
     t.index ["status"], name: "index_playlists_on_status"
     t.index ["user_id"], name: "index_playlists_on_user_id"
   end
@@ -123,6 +129,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_08_020000) do
   add_foreign_key "host_invitations", "users", column: "invited_by_id"
   add_foreign_key "host_invitations", "users", column: "used_by_id"
   add_foreign_key "playlists", "audio_files", column: "full_show_audio_file_id"
+  add_foreign_key "playlists", "audio_files", column: "rendered_master_audio_file_id"
   add_foreign_key "playlists", "users"
   add_foreign_key "songs", "audio_files"
   add_foreign_key "songs", "playlists"

@@ -40,7 +40,7 @@ class StreamDeliveryService
         scheduled_at: playlist.scheduled_at&.iso8601,
         status: playlist.status,
         total_duration_seconds: total_duration_seconds,
-        package_mode: playlist.full_show_audio_file.present? ? 'single_master' : 'ordered_assets'
+        package_mode: master_audio_file.present? ? 'single_master' : 'ordered_assets'
       },
       assets: audio_assets,
       playout: playout_items
@@ -96,8 +96,9 @@ class StreamDeliveryService
   def audio_assets
     assets = []
 
-    if playlist.full_show_audio_file.present?
-      assets << audio_asset(playlist.full_show_audio_file, role: 'full_show', position: 1)
+    if master_audio_file.present?
+      assets << audio_asset(master_audio_file, role: 'broadcast_master', position: 1)
+      return assets
     end
 
     playlist.songs.includes(:audio_file).each do |song|
@@ -108,18 +109,18 @@ class StreamDeliveryService
   end
 
   def playout_items
-    if playlist.full_show_audio_file.present?
+    if master_audio_file.present?
       return [
         {
           position: 1,
-          type: 'full_show',
+          type: playlist.rendered_master_audio_file.present? ? 'broadcast_master' : 'full_show',
           title: playlist.name,
-          duration_seconds: playlist.full_show_audio_file.duration,
+          duration_seconds: master_audio_file.duration,
           start_offset_seconds: 0,
-          end_offset_seconds: playlist.full_show_audio_file.duration,
-          audio_url: playlist.full_show_audio_file.public_url,
-          audio_file_id: playlist.full_show_audio_file.id,
-          s3_key: playlist.full_show_audio_file.s3_key
+          end_offset_seconds: master_audio_file.duration,
+          audio_url: master_audio_file.public_url,
+          audio_file_id: master_audio_file.id,
+          s3_key: master_audio_file.s3_key
         }
       ]
     end
@@ -177,5 +178,11 @@ class StreamDeliveryService
 
   def total_duration_seconds
     playlist.duration_seconds
+  end
+
+  def master_audio_file
+    return playlist.rendered_master_audio_file if playlist.render_status == 'ready'
+
+    playlist.full_show_audio_file
   end
 end

@@ -27,6 +27,7 @@ Rails.application.routes.draw do
           patch :reopen_for_edits
           patch :reject
           patch :schedule
+          post :render_master
           post :deliver
         end
       end
