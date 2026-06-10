@@ -73,7 +73,7 @@ RSpec.describe "user login", type: :request do
   end
 
   describe "destroy session" do
-    it "should destroy a session to logout a user" do
+    it "destroys the current session without requiring a user id" do
       user1 = User.create!(first_name: "John", last_name: "Doe", email: "lame@gmail.com", password: "1234password", password_confirmation: "1234password")
 
       post "/api/v1/sessions", params: {
@@ -86,12 +86,24 @@ RSpec.describe "user login", type: :request do
       expect(response.status).to eq(200)
       expect(json_response["data"]["id"]).to eq(user1.id.to_s)
       
-      delete "/api/v1/sessions/#{user1.id}"
+      delete "/api/v1/sessions"
 
       json_response = JSON.parse(response.body)
 
       expect(response.status).to eq(200)
       expect(json_response["message"]).to eq("Logged out successfully")
+
+      get "/api/v1/sessions/current"
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "keeps the legacy member logout route working" do
+      user = create(:user)
+
+      delete "/api/v1/sessions/#{user.id}"
+
+      expect(response).to have_http_status(:ok)
     end
   end
 end

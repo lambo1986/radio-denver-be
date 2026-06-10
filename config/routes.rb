@@ -38,6 +38,7 @@ Rails.application.routes.draw do
 
       # Session routes for login, current user, and logout
       get 'sessions/current', to: 'sessions#show'
+      delete 'sessions', to: 'sessions#destroy'
       resources :sessions, only: [:create, :destroy]
 
       # Password reset routes

@@ -1,6 +1,6 @@
 # README
 
-This is a project being brewed by myself and Reid Poole that will serve as a sort of radio station for users to create their own radio show, complete with music and voice recording. 
+Human Frequency is a human-made radio platform presented by Alpine Groove Guide. Hosts create complete radio shows with music and recorded voice breaks, while station admins review and schedule programming.
 
 ## Setup
 

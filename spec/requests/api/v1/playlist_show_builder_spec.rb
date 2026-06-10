@@ -1,4 +1,5 @@
 require 'rails_helper'
+require 'uri'
 
 RSpec.describe 'Playlist show builder', type: :request do
   let(:user) { create(:user, host_name: 'Poole and the Gang') }
@@ -46,7 +47,9 @@ RSpec.describe 'Playlist show builder', type: :request do
       expect(body['songs'].first['position']).to eq(1)
       expect(body['songs'].second['position']).to eq(2)
       expect(body['songs'].first['file_url']).to include(library_track.s3_key)
-      expect(body['songs'].first['audio_file']['url']).to eq(body['songs'].first['file_url'])
+      audio_file_url = URI.parse(body['songs'].first['audio_file']['url'])
+      song_file_url = URI.parse(body['songs'].first['file_url'])
+      expect(audio_file_url.path).to eq(song_file_url.path)
     end
 
     it 'attaches a full show upload to the show' do

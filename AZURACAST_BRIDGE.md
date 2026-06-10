@@ -1,10 +1,10 @@
-# AzuraCast Bridge
+# Human Frequency AzuraCast Bridge
 
-Melody Mixer Network should treat AzuraCast as the broadcast engine, not the place where hosts build shows.
+Human Frequency should treat AzuraCast as the broadcast engine, not the place where hosts build shows.
 
 ## Current Flow
 
-1. Hosts upload audio and build shows in Melody Mixer.
+1. Hosts upload audio and build shows in Human Frequency.
 2. Admins review submitted shows.
 3. Admins schedule approved shows.
 4. Admins queue a stream package with the `azuracast` delivery target.
@@ -15,8 +15,8 @@ This is currently a manual-export bridge. It prepares the package cleanly, but i
 ## Recommended First AzuraCast Setup
 
 1. Install AzuraCast on a small VPS using the official Docker install.
-2. Create one station named `Alpine Groove Guide`.
-3. Create an AutoDJ playlist named `Alpine Groove Guide Shows`.
+2. Create one station named `Human Frequency`.
+3. Create an AutoDJ playlist named `Human Frequency Shows`.
 4. Create an API key from the AzuraCast user menu.
 5. Add the public stream URL to the frontend as `NEXT_PUBLIC_STREAM_URL`.
 
@@ -25,26 +25,26 @@ This is currently a manual-export bridge. It prepares the package cleanly, but i
 Set these when an AzuraCast instance exists:
 
 ```bash
-STREAM_STATION_NAME="Alpine Groove Guide"
+STREAM_STATION_NAME="Human Frequency"
 AZURACAST_BASE_URL="https://radio.example.com"
 AZURACAST_STATION_ID="1"
-AZURACAST_STATION_SHORTCODE="alpine_groove_guide"
-AZURACAST_STREAM_URL="https://radio.example.com/listen/alpine_groove_guide/radio.mp3"
+AZURACAST_STATION_SHORTCODE="human_frequency"
+AZURACAST_STREAM_URL="https://radio.example.com/listen/human_frequency/radio.mp3"
 AZURACAST_API_KEY="replace-with-azuracast-api-key"
-AZURACAST_PLAYLIST_NAME="Alpine Groove Guide Shows"
+AZURACAST_PLAYLIST_NAME="Human Frequency Shows"
 ```
 
 ## Frontend Environment Variable
 
 ```bash
-NEXT_PUBLIC_STREAM_URL="https://radio.example.com/listen/alpine_groove_guide/radio.mp3"
+NEXT_PUBLIC_STREAM_URL="https://radio.example.com/listen/human_frequency/radio.mp3"
 ```
 
 ## Manual Test Path
 
 Use this before automating API uploads:
 
-1. Create and submit a short show in Melody Mixer.
+1. Create and submit a short show in Human Frequency.
 2. Mark it ready in Station Review.
 3. Schedule it.
 4. Select `AzuraCast AutoDJ` as the stream target.
@@ -52,7 +52,7 @@ Use this before automating API uploads:
 6. Open the stream export manifest.
 7. Upload the full-show file or ordered assets into AzuraCast media.
 8. Assign the media to the recommended playlist.
-9. Confirm the stream URL plays on the Alpine Groove Guide page.
+9. Confirm the stream URL plays on the Human Frequency listener page.
 
 ## Automation Path
 

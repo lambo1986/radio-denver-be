@@ -7,7 +7,7 @@ class StreamDeliveryService
   end
 
   def deliver
-    reference = "mmn-show-#{playlist.id}-#{Time.current.to_i}"
+    reference = "hf-show-#{playlist.id}-#{Time.current.to_i}"
 
     playlist.update!(
       delivery_status: 'queued',
@@ -48,7 +48,7 @@ class StreamDeliveryService
   end
 
   def station_name
-    ENV.fetch('STREAM_STATION_NAME', 'Alpine Groove Guide')
+    ENV.fetch('STREAM_STATION_NAME', 'Human Frequency')
   end
 
   def provider_manifest
@@ -72,12 +72,12 @@ class StreamDeliveryService
       station_shortcode: ENV['AZURACAST_STATION_SHORTCODE'],
       stream_url: ENV['AZURACAST_STREAM_URL'],
       api_key_configured: ENV['AZURACAST_API_KEY'].present?,
-      recommended_playlist: ENV.fetch('AZURACAST_PLAYLIST_NAME', 'Alpine Groove Guide Shows'),
-      recommended_media_folder: "melody-mixer/#{playlist.id}-#{playlist.name.parameterize}",
+      recommended_playlist: ENV.fetch('AZURACAST_PLAYLIST_NAME', 'Human Frequency Shows'),
+      recommended_media_folder: "human-frequency/#{playlist.id}-#{playlist.name.parameterize}",
       next_steps: [
         'Upload the full-show audio or ordered show assets into AzuraCast media.',
         'Assign uploaded media to the recommended AutoDJ playlist.',
-        'Use the stream URL on the Alpine Groove Guide listener page.'
+        'Use the stream URL on the Human Frequency listener page, presented by Alpine Groove Guide.'
       ],
       api_notes: 'AzuraCast exposes per-install API docs at /api. Configure AZURACAST_* env vars before automating uploads.'
     }

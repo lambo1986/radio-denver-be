@@ -158,7 +158,7 @@ RSpec.describe 'Station review workflow', type: :request do
         scheduled_at: 1.hour.from_now,
         delivery_status: 'queued',
         delivery_target: 'azuracast',
-        delivery_reference: 'mmn-show-1-test',
+        delivery_reference: 'hf-show-1-test',
         delivery_manifest: { provider: { name: 'AzuraCast' } },
         delivered_at: Time.current
       )
@@ -276,8 +276,8 @@ RSpec.describe 'Station review workflow', type: :request do
       body = JSON.parse(response.body)
       expect(body['delivery_status']).to eq('queued')
       expect(body['delivery_target']).to eq('local_stream')
-      expect(body['delivery_reference']).to start_with("mmn-show-#{playlist.id}-")
-      expect(body['delivery_manifest']['station']).to eq('Alpine Groove Guide')
+      expect(body['delivery_reference']).to start_with("hf-show-#{playlist.id}-")
+      expect(body['delivery_manifest']['station']).to eq('Human Frequency')
       expect(body['delivery_manifest']['version']).to eq(2)
       expect(body['delivery_manifest']['show']['id']).to eq(playlist.id)
       expect(body['delivery_manifest']['show']['package_mode']).to eq('ordered_assets')
@@ -304,8 +304,8 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(body['delivery_target']).to eq('azuracast')
       expect(provider['name']).to eq('AzuraCast')
       expect(provider['mode']).to eq('manual_export')
-      expect(provider['recommended_playlist']).to eq('Alpine Groove Guide Shows')
-      expect(provider['recommended_media_folder']).to include("melody-mixer/#{playlist.id}-")
+      expect(provider['recommended_playlist']).to eq('Human Frequency Shows')
+      expect(provider['recommended_media_folder']).to include("human-frequency/#{playlist.id}-")
     end
 
     it 'rejects delivery for an unscheduled show' do
