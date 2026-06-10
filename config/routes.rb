@@ -33,6 +33,7 @@ Rails.application.routes.draw do
 
       # User routes with nested audio_files routes
       resources :users, only: [:index, :show, :create, :update, :destroy] do
+        patch :profile_image, on: :member
         resources :audio_files, only: [:index, :show, :update, :create, :destroy]
       end
 

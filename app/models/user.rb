@@ -3,6 +3,8 @@ class User < ApplicationRecord
 
   ROLES = %w[host admin].freeze
   ACCOUNT_STATUSES = %w[active suspended].freeze
+  PROFILE_IMAGE_CONTENT_TYPES = %w[image/jpeg image/png image/webp].freeze
+  MAX_PROFILE_IMAGE_SIZE = 10.megabytes
 
   validates :first_name, presence: true
   validates :last_name, presence: true
@@ -34,6 +36,15 @@ class User < ApplicationRecord
 
   def full_name
     [first_name, last_name].compact.join(' ').strip
+  end
+
+  def profile_image_url
+    return if profile_image.blank?
+    return profile_image if profile_image.start_with?('http://', 'https://', '/')
+
+    AwsS3Service.new(ENV.fetch('AWS_BUCKET_NAME', 'radio-denver')).get_file_url(profile_image)
+  rescue StandardError
+    profile_image
   end
 
   def generate_password_token!

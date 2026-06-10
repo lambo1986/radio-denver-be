@@ -7,8 +7,11 @@ class UserSerializer
              :email,
              :host_name,
              :description,
-             :profile_image,
              :phone_number,
              :role,
              :account_status
+
+  attribute :profile_image do |user|
+    user.profile_image_url
+  end
 end

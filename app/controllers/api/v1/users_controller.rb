@@ -1,9 +1,9 @@
 class Api::V1::UsersController < ApplicationController
-  skip_before_action :verify_authenticity_token, only: [:create, :update, :destroy]
+  skip_before_action :verify_authenticity_token, only: [:create, :update, :destroy, :profile_image]
   before_action :authenticate_request, except: :create
   before_action :require_admin, only: [:index, :destroy]
-  before_action :set_user, only: [:show, :update, :destroy]
-  before_action :authorize_user_access, only: [:show, :update]
+  before_action :set_user, only: [:show, :update, :destroy, :profile_image]
+  before_action :authorize_user_access, only: [:show, :update, :profile_image]
 
   def index
     users = User.all
@@ -41,6 +41,23 @@ class Api::V1::UsersController < ApplicationController
     end
   end
 
+  def profile_image
+    uploaded_file = params[:profile_image]
+    errors = profile_image_errors(uploaded_file)
+    return render json: { errors: errors }, status: :unprocessable_entity if errors.any?
+
+    previous_key = stored_profile_image_key
+    upload = s3_service.upload_uploaded_file(uploaded_file, prefix: "profile_images/#{@user.id}")
+
+    if @user.update(profile_image: upload[:key])
+      delete_profile_image(previous_key) if previous_key.present? && previous_key != upload[:key]
+      render json: UserSerializer.new(@user).serializable_hash, status: :ok
+    else
+      delete_profile_image(upload[:key])
+      render json: { errors: @user.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
   def destroy
     if @user.destroy
       render json: { message: 'User deleted' }, status: :ok
@@ -62,5 +79,35 @@ class Api::V1::UsersController < ApplicationController
     return if @current_user.admin? || @current_user.id == @user.id
 
     render json: { error: 'Not Authorized' }, status: :forbidden
+  end
+
+  def profile_image_errors(uploaded_file)
+    return ['Choose a profile image to upload.'] if uploaded_file.blank?
+
+    errors = []
+    errors << 'Profile image is too large. Maximum size is 10 MB.' if uploaded_file.size > User::MAX_PROFILE_IMAGE_SIZE
+    unless User::PROFILE_IMAGE_CONTENT_TYPES.include?(uploaded_file.content_type)
+      errors << 'Choose a JPG, PNG, or WebP image.'
+    end
+    errors
+  end
+
+  def stored_profile_image_key
+    value = @user.profile_image.to_s
+    return if value.blank? || value.start_with?('http://', 'https://', '/')
+
+    value
+  end
+
+  def delete_profile_image(key)
+    return if key.blank?
+
+    s3_service.delete_file(key)
+  rescue StandardError
+    nil
+  end
+
+  def s3_service
+    @s3_service ||= AwsS3Service.new(ENV.fetch('AWS_BUCKET_NAME', 'radio-denver'))
   end
 end
