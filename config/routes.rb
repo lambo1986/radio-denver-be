@@ -20,6 +20,7 @@ Rails.application.routes.draw do
         end
       end
       get 'station/schedule', to: 'playlists#public_schedule'
+      get 'station/stream_status', to: 'station#stream_status'
       resources :playlists, only: [:index, :show, :update, :create, :destroy] do
         member do
           patch :mark_ready
