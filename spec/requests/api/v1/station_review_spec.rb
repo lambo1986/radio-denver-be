@@ -109,6 +109,40 @@ RSpec.describe 'Station review workflow', type: :request do
     end
   end
 
+  describe 'DELETE /api/v1/playlists/:id' do
+    it 'lets an admin delete a station queue show and cleans generated show audio' do
+      host = create(:user)
+      playlist = create(:playlist, user: host, status: 'scheduled')
+      full_show = create(:audio_file, user: host, kind: 'full_show', visibility: 'private', s3_key: 'full_shows/old-show.mp3')
+      master = create(:audio_file, user: host, kind: 'full_show', visibility: 'private', s3_key: 'broadcast_masters/old-master.mp3')
+      playlist.update!(full_show_audio_file: full_show, rendered_master_audio_file: master, render_status: 'ready')
+      service = instance_double(AwsS3Service, delete_file: true)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+
+      expect do
+        delete "/api/v1/playlists/#{playlist.id}", headers: headers
+      end.to change(Playlist, :count).by(-1)
+
+      expect(response).to have_http_status(:no_content)
+      expect(AudioFile.exists?(full_show.id)).to be(false)
+      expect(AudioFile.exists?(master.id)).to be(false)
+      expect(service).to have_received(:delete_file).with('full_shows/old-show.mp3')
+      expect(service).to have_received(:delete_file).with('broadcast_masters/old-master.mp3')
+    end
+
+    it 'still keeps hosts from deleting another hosts show' do
+      owner = create(:user)
+      other_host = create(:user)
+      playlist = create(:playlist, user: owner, status: 'submitted')
+
+      delete "/api/v1/playlists/#{playlist.id}",
+             headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: other_host.id)}" }
+
+      expect(response).to have_http_status(:not_found)
+      expect(Playlist.exists?(playlist.id)).to be(true)
+    end
+  end
+
   describe 'host submission confirmations' do
     it 'rejects submission without all confirmations' do
       playlist = create(:playlist, status: 'draft')

@@ -153,4 +153,51 @@ RSpec.describe 'Audio library', type: :request do
       expect(shared_track.reload.title).not_to eq('Taken Over')
     end
   end
+
+  describe 'DELETE /api/v1/audio_files/:id' do
+    it 'lets an admin delete another hosts audio file' do
+      admin = create(:user, :admin)
+      track = create(:audio_file, user: create(:user), visibility: 'private', s3_key: 'audio_files/host/private.mp3')
+      service = instance_double(AwsS3Service, delete_file: true)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+
+      expect do
+        delete "/api/v1/audio_files/#{track.id}",
+               headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: admin.id)}" }
+      end.to change(AudioFile, :count).by(-1)
+
+      expect(response).to have_http_status(:no_content)
+      expect(service).to have_received(:delete_file).with('audio_files/host/private.mp3')
+    end
+
+    it 'does not let one host delete another hosts audio file' do
+      track = create(:audio_file, user: create(:user), visibility: 'shared')
+
+      delete "/api/v1/audio_files/#{track.id}", headers: headers
+
+      expect(response).to have_http_status(:not_found)
+      expect(AudioFile.exists?(track.id)).to be(true)
+    end
+
+    it 'detaches deleted audio from shows before removing the file' do
+      admin = create(:user, :admin)
+      host = create(:user)
+      track = create(:audio_file, user: host, visibility: 'shared', s3_key: 'audio_files/host/used.mp3')
+      playlist = create(:playlist, user: host, status: 'ready', full_show_audio_file: track, rendered_master_audio_file: track, render_status: 'ready', rendered_at: Time.current)
+      song = create(:song, playlist: playlist, audio_file: track, file_url: track.url)
+      service = instance_double(AwsS3Service, delete_file: true)
+      allow(AwsS3Service).to receive(:new).and_return(service)
+
+      delete "/api/v1/audio_files/#{track.id}",
+             headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: admin.id)}" }
+
+      expect(response).to have_http_status(:no_content)
+      expect(AudioFile.exists?(track.id)).to be(false)
+      expect(playlist.reload.full_show_audio_file).to be_nil
+      expect(playlist.rendered_master_audio_file).to be_nil
+      expect(playlist.render_status).to eq('not_rendered')
+      expect(song.reload.audio_file).to be_nil
+      expect(song.file_url).to be_nil
+    end
+  end
 end
