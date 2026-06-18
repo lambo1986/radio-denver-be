@@ -1,7 +1,8 @@
 class Api::V1::PlaylistsController < ApplicationController
   skip_before_action :verify_authenticity_token, only: :public_schedule
   before_action :authenticate_request, except: :public_schedule
-  before_action :set_playlist, only: [:show, :update, :destroy]
+  before_action :set_playlist, only: [:show, :update]
+  before_action :set_destroyable_playlist, only: :destroy
   before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver]
   before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver]
 
@@ -86,7 +87,13 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def destroy
+    full_show_audio_file = @playlist.full_show_audio_file
+    rendered_master_audio_file = @playlist.rendered_master_audio_file
+
     @playlist.destroy
+    cleanup_orphaned_playlist_audio(full_show_audio_file)
+    cleanup_audio_file(rendered_master_audio_file) unless rendered_master_audio_file&.id == full_show_audio_file&.id
+
     head :no_content
   end
 
@@ -194,6 +201,14 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def set_playlist
     @playlist = @current_user.playlists.find(params[:id])
+  end
+
+  def set_destroyable_playlist
+    scope = @current_user.admin? ? Playlist.all : @current_user.playlists
+    @playlist = scope.find_by(id: params[:id])
+    return if @playlist.present?
+
+    render json: { error: 'Playlist not found' }, status: :not_found
   end
 
   def set_station_playlist
@@ -336,6 +351,14 @@ class Api::V1::PlaylistsController < ApplicationController
     return if Playlist.where(full_show_audio_file_id: previous_audio_file.id).exists?
 
     cleanup_full_show_upload(previous_audio_file)
+  end
+
+  def cleanup_orphaned_playlist_audio(audio_file)
+    return unless audio_file
+    return if Playlist.where(full_show_audio_file_id: audio_file.id).exists?
+    return if Song.where(audio_file_id: audio_file.id).exists?
+
+    cleanup_full_show_upload(audio_file)
   end
 
   def invalidate_rendered_master(audio_file)

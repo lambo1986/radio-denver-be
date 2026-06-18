@@ -1,12 +1,15 @@
 class Api::V1::AudioFilesController < ApplicationController
   before_action :authenticate_request
   before_action :set_visible_audio_file, only: :show
-  before_action :set_owned_audio_file, only: [:update, :destroy]
+  before_action :set_owned_audio_file, only: :update
+  before_action :set_destroyable_audio_file, only: :destroy
 
   def index
     nested_user_scope = params[:user_id].present? || params[:scope] == 'mine'
     @audio_files = if nested_user_scope
                      @current_user.audio_files.includes(:user).order(created_at: :asc)
+                   elsif @current_user.admin?
+                     AudioFile.includes(:user).order(created_at: :desc)
                    else
                      AudioFile.library_visible.or(AudioFile.owned_by(@current_user)).includes(:user).order(created_at: :desc)
                    end
@@ -50,6 +53,7 @@ class Api::V1::AudioFilesController < ApplicationController
   end
 
   def destroy
+    detach_audio_file_references(@audio_file)
     delete_from_s3(@audio_file.s3_key)
     @audio_file.destroy
     head :no_content
@@ -63,6 +67,14 @@ class Api::V1::AudioFilesController < ApplicationController
 
   def set_owned_audio_file
     @audio_file = @current_user.audio_files.find_by(id: params[:id])
+    return if @audio_file.present?
+
+    render json: { error: 'Audio file not found' }, status: :not_found
+  end
+
+  def set_destroyable_audio_file
+    scope = @current_user.admin? ? AudioFile.all : @current_user.audio_files
+    @audio_file = scope.find_by(id: params[:id])
     return if @audio_file.present?
 
     render json: { error: 'Audio file not found' }, status: :not_found
@@ -127,6 +139,17 @@ class Api::V1::AudioFilesController < ApplicationController
     return if object_key.blank?
 
     s3_service.delete_file(object_key)
+  end
+
+  def detach_audio_file_references(audio_file)
+    Playlist.where(full_show_audio_file_id: audio_file.id).update_all(full_show_audio_file_id: nil)
+    Playlist.where(rendered_master_audio_file_id: audio_file.id).update_all(
+      rendered_master_audio_file_id: nil,
+      render_status: 'not_rendered',
+      render_error: nil,
+      rendered_at: nil
+    )
+    Song.where(audio_file_id: audio_file.id).update_all(audio_file_id: nil, file_url: nil)
   end
 
   def s3_service
