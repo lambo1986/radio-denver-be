@@ -55,6 +55,7 @@ AZURACAST_STREAM_URL="https://a5.asurahosting.com:7390/radio.mp3"
 AZURACAST_NOW_PLAYING_URL="https://a5.asurahosting.com/api/nowplaying_static/human_frequency.json"
 AZURACAST_API_KEY="replace-with-azuracast-api-key"
 AZURACAST_PLAYLIST_NAME="Human Frequency Shows"
+AZURACAST_MEDIA_FOLDER="human-frequency-shows"
 ```
 
 `AZURACAST_API_KEY` is server-only. Do not prefix it with `NEXT_PUBLIC_`, do not expose it in frontend code, and do not commit a real value.
@@ -83,15 +84,21 @@ Use this before automating API uploads:
 
 ## Automation Path
 
-Stage 3B should begin only after the discovery panel confirms the right station, playlist, and media path. The next backend service should:
+Stage 3B should begin only after the discovery panel confirms the right station, playlist, and media path. The upload service now:
 
 1. Render one broadcast master in Human Frequency.
 2. Upload that master to AzuraCast through its authenticated media API.
 3. Assign the uploaded media to the configured playlist.
 4. Save AzuraCast media id, playlist id, remote path, upload timestamp, and assignment timestamp back into `delivery_manifest`.
-5. Add delivery fields such as `azuracast_media_id`, `azuracast_playlist_id`, `azuracast_remote_path`, `azuracast_uploaded_at`, and `azuracast_assigned_at` once the API response shape is verified.
-6. Mark `delivery_status` as `sent` only after AzuraCast confirms both upload and playlist assignment.
+5. Mark `delivery_status` as `sent` only after AzuraCast confirms both upload and playlist assignment.
 
 Keep `queued` for packages that are exported but not yet accepted by AzuraCast.
+
+Current live discovery showed these AzuraCast playlists:
+
+- `default`
+- `test show`
+
+Before using production upload automation, either create/rename the intended production playlist to `Human Frequency Shows`, or set `AZURACAST_PLAYLIST_NAME` to the exact existing playlist name. Do not leave this ambiguous; the backend will reject upload instead of sending shows to the wrong playlist.
 
 Stage 3C can add station control, but only behind explicit admin confirmation and only after the upload and playlist assignment path is stable.

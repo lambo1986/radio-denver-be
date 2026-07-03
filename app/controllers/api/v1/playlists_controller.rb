@@ -3,8 +3,8 @@ class Api::V1::PlaylistsController < ApplicationController
   before_action :authenticate_request, except: :public_schedule
   before_action :set_playlist, only: [:show, :update]
   before_action :set_destroyable_playlist, only: :destroy
-  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver]
-  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver]
+  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver, :deliver_to_azuracast]
+  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver, :deliver_to_azuracast]
 
   def index
     playlists = playlist_scope.includes(:full_show_audio_file, songs: :audio_file).order(created_at: :desc)
@@ -185,6 +185,13 @@ class Api::V1::PlaylistsController < ApplicationController
     @playlist.update!(render_status: 'rendering', render_error: nil)
     RenderBroadcastMasterJob.perform_later(@playlist.id)
     render json: serialize_playlist(@playlist), status: :accepted
+  end
+
+  def deliver_to_azuracast
+    delivered_playlist = AzuracastMasterDeliveryService.new(@playlist).deliver
+    render json: serialize_playlist(delivered_playlist)
+  rescue AzuracastMasterDeliveryService::DeliveryError => error
+    render_transition_error(error.message)
   end
 
   private

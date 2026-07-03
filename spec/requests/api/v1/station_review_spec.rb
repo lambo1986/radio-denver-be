@@ -441,4 +441,31 @@ RSpec.describe 'Station review workflow', type: :request do
       expect(JSON.parse(response.body)['errors']).to include('Only ready or scheduled shows can be rendered.')
     end
   end
+
+  describe 'POST /api/v1/playlists/:id/deliver_to_azuracast' do
+    it 'lets an admin upload a rendered master to AzuraCast' do
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now, delivery_status: 'queued')
+      master = create(:audio_file, user: playlist.user, kind: 'full_show', s3_key: 'broadcast_masters/master.mp3')
+      playlist.update!(rendered_master_audio_file: master, render_status: 'ready')
+      delivered_playlist = playlist.tap { |item| item.delivery_status = 'sent' }
+      service = instance_double(AzuracastMasterDeliveryService, deliver: delivered_playlist)
+      allow(AzuracastMasterDeliveryService).to receive(:new).with(playlist).and_return(service)
+
+      post "/api/v1/playlists/#{playlist.id}/deliver_to_azuracast", headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(AzuracastMasterDeliveryService).to have_received(:new).with(playlist)
+      expect(JSON.parse(response.body)['delivery_status']).to eq('sent')
+    end
+
+    it 'does not let a host upload a show to AzuraCast' do
+      host = create(:user)
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+
+      post "/api/v1/playlists/#{playlist.id}/deliver_to_azuracast",
+           headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: host.id)}" }
+
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
 end

@@ -32,6 +32,7 @@ Rails.application.routes.draw do
           patch :schedule
           post :render_master
           post :deliver
+          post :deliver_to_azuracast
         end
       end
 

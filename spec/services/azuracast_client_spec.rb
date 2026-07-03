@@ -124,6 +124,52 @@ RSpec.describe AzuracastClient, type: :service do
     expect(discovery[:errors]).to include(hash_including(source: 'media_folders', message: include('HTTP 404')))
   end
 
+  it 'uploads a media file with a remote path' do
+    ENV['AZURACAST_API_KEY'] = 'super-secret-key'
+    response = instance_double(Net::HTTPResponse, code: '200', body: { id: 123, path: 'shows/master.mp3' }.to_json)
+    captured_request = nil
+    http = instance_double(Net::HTTP)
+    allow(http).to receive(:request) do |request|
+      captured_request = request
+      response
+    end
+    allow(Net::HTTP).to receive(:start).and_yield(http)
+
+    Tempfile.create(['master', '.mp3']) do |file|
+      file.write('audio')
+      file.flush
+
+      upload = described_class.new.upload_media_file(file.path, remote_path: 'shows/master.mp3')
+
+      expect(upload).to eq('id' => 123, 'path' => 'shows/master.mp3')
+    end
+    request = captured_request
+    expect(request).to be_a(Net::HTTP::Post)
+    expect(request.path).to eq('/api/station/720/files')
+    expect(request['Authorization']).to eq('Bearer super-secret-key')
+    expect(request.content_type).to include('multipart/form-data')
+  end
+
+  it 'assigns media to a playlist by updating the media file' do
+    ENV['AZURACAST_API_KEY'] = 'super-secret-key'
+    response = instance_double(Net::HTTPResponse, code: '200', body: { id: 123, playlists: [{ id: 6814 }] }.to_json)
+    captured_request = nil
+    http = instance_double(Net::HTTP)
+    allow(http).to receive(:request) do |request|
+      captured_request = request
+      response
+    end
+    allow(Net::HTTP).to receive(:start).and_yield(http)
+
+    assignment = described_class.new.assign_media_to_playlist(123, 6814, existing_playlist_ids: [6654])
+
+    expect(assignment['playlists']).to eq([{ 'id' => 6814 }])
+    request = captured_request
+    expect(request).to be_a(Net::HTTP::Put)
+    expect(request.path).to eq('/api/station/720/file/123')
+    expect(JSON.parse(request.body)).to eq('playlists' => [6654, 6814])
+  end
+
   def azuracast_payload
     {
       'station' => {
@@ -170,4 +216,5 @@ RSpec.describe AzuracastClient, type: :service do
     end
     allow(Net::HTTP).to receive(:start).and_yield(http)
   end
+
 end

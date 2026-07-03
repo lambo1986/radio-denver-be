@@ -118,12 +118,40 @@ class AzuracastClient
     }
   end
 
-  def upload_media_file(_path, _remote_path: nil)
-    raise NotImplementedError, 'TODO: upload rendered broadcast masters to AzuraCast station media.'
+  def upload_media_file(path, remote_path: nil)
+    raise 'Audio file does not exist for AzuraCast upload.' unless File.exist?(path)
+
+    file = File.open(path, 'rb')
+    form = [['file', file]]
+    form.unshift(['path', remote_path]) if remote_path.present?
+
+    authenticated_request(
+      Net::HTTP::Post,
+      "/api/station/#{station_id}/files",
+      form: form,
+      form_encoding: 'multipart/form-data'
+    )
+  ensure
+    file&.close
   end
 
-  def assign_media_to_playlist(_media_id, _playlist_id)
-    raise NotImplementedError, 'TODO: assign uploaded media to the Human Frequency AzuraCast playlist.'
+  def update_media_file(media_id, attributes)
+    authenticated_request(
+      Net::HTTP::Put,
+      "/api/station/#{station_id}/file/#{media_id}",
+      json: attributes
+    )
+  end
+
+  def assign_media_to_playlist(media_id, playlist_id, existing_playlist_ids: [])
+    playlist_ids = (Array(existing_playlist_ids) + [playlist_id]).compact.map(&:to_i).uniq
+    update_media_file(media_id, playlists: playlist_ids)
+  rescue StandardError => first_error
+    begin
+      update_media_file(media_id, playlists: playlist_ids.map { |id| { id: id } })
+    rescue StandardError => second_error
+      raise "Could not assign AzuraCast media to playlist. #{safe_error_message(first_error)}; fallback failed: #{safe_error_message(second_error)}"
+    end
   end
 
   def create_playlist(_attributes)
@@ -256,15 +284,28 @@ class AzuracastClient
   def authenticated_get_json(path)
     raise 'AZURACAST_API_KEY is not configured.' unless api_key_configured?
 
+    authenticated_request(Net::HTTP::Get, path)
+  end
+
+  def authenticated_request(request_class, path, json: nil, form: nil, form_encoding: nil)
+    raise 'AZURACAST_API_KEY is not configured.' unless api_key_configured?
+
     uri = URI.join("#{base_url}/", path.sub(%r{\A/}, ''))
-    request = Net::HTTP::Get.new(uri.request_uri)
+    request = request_class.new(uri.request_uri)
     request['Authorization'] = "Bearer #{ENV.fetch('AZURACAST_API_KEY')}"
-    response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.is_a?(URI::HTTPS), open_timeout: CHECK_TIMEOUT_SECONDS, read_timeout: CHECK_TIMEOUT_SECONDS) do |http|
+    if json
+      request['Content-Type'] = 'application/json'
+      request.body = JSON.generate(json)
+    elsif form
+      request.set_form(form, form_encoding)
+    end
+
+    response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.is_a?(URI::HTTPS), open_timeout: CHECK_TIMEOUT_SECONDS, read_timeout: 120) do |http|
       http.request(request)
     end
-    raise "AzuraCast API returned HTTP #{response.code}" unless response.code.to_i.between?(200, 299)
+    raise "AzuraCast API returned HTTP #{response.code}: #{response.body.to_s.truncate(200)}" unless response.code.to_i.between?(200, 299)
 
-    JSON.parse(response.body)
+    response.body.present? ? JSON.parse(response.body) : {}
   end
 
   def fetch_discovery_value(errors, label)
