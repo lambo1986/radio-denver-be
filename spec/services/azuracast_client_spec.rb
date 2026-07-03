@@ -71,6 +71,59 @@ RSpec.describe AzuracastClient, type: :service do
     expect(now_playing[:nowPlaying]).to include(title: nil, artist: nil)
   end
 
+  it 'builds a read-only discovery summary without exposing the API key' do
+    ENV['AZURACAST_API_KEY'] = 'super-secret-key'
+    allow_authenticated_responses(
+      '/api/station/720' => { 'id' => 720, 'name' => 'Human Frequency', 'shortcode' => 'human_frequency' },
+      '/api/station/720/playlists' => [
+        { 'id' => 10, 'name' => 'Human Frequency Shows', 'type' => 'default', 'num_songs' => 2 }
+      ],
+      '/api/station/720/files' => {
+        'records' => [
+          { 'id' => 'media-1', 'name' => 'test-show.mp3', 'title' => 'Test Show', 'artist' => 'Human Frequency', 'path' => 'shows/test-show.mp3' }
+        ]
+      },
+      '/api/station/720/files/list' => [
+        { 'type' => 'directory', 'path' => 'shows', 'name' => 'shows' }
+      ]
+    )
+
+    discovery = described_class.new.discovery(
+      recommended_playlist: 'Human Frequency Shows',
+      recommended_media_folder: 'shows'
+    )
+
+    expect(discovery).to include(
+      ok: true,
+      connected: true,
+      stationId: '720',
+      stationShortcode: 'human_frequency',
+      apiKeyConfigured: true
+    )
+    expect(discovery[:playlists]).to eq([{ id: 10, name: 'Human Frequency Shows', type: 'default', numSongs: 2 }])
+    expect(discovery[:recentMedia].first).to include(id: 'media-1', name: 'test-show.mp3', title: 'Test Show')
+    expect(discovery[:recommendedPlaylist]).to include(name: 'Human Frequency Shows', found: true)
+    expect(discovery[:recommendedMediaFolder]).to include(name: 'shows', found: true)
+    expect(discovery.to_s).not_to include('super-secret-key')
+  end
+
+  it 'keeps discovery usable when one AzuraCast endpoint fails' do
+    ENV['AZURACAST_API_KEY'] = 'super-secret-key'
+    allow_authenticated_responses(
+      '/api/station/720' => { 'id' => 720, 'name' => 'Human Frequency' },
+      '/api/station/720/playlists' => [{ 'id' => 10, 'name' => 'Human Frequency Shows' }],
+      '/api/station/720/files' => [],
+      '/api/station/720/files/list' => instance_double(Net::HTTPResponse, code: '404', body: { error: 'not found' }.to_json)
+    )
+
+    discovery = described_class.new.discovery(recommended_playlist: 'Human Frequency Shows')
+
+    expect(discovery[:ok]).to be(false)
+    expect(discovery[:connected]).to be(true)
+    expect(discovery[:recommendedPlaylist]).to include(found: true)
+    expect(discovery[:errors]).to include(hash_including(source: 'media_folders', message: include('HTTP 404')))
+  end
+
   def azuracast_payload
     {
       'station' => {
@@ -107,5 +160,14 @@ RSpec.describe AzuracastClient, type: :service do
         }
       }
     }
+  end
+
+  def allow_authenticated_responses(payload_by_path)
+    http = instance_double(Net::HTTP)
+    allow(http).to receive(:request) do |request|
+      payload = payload_by_path.fetch(request.path)
+      payload.respond_to?(:code) ? payload : instance_double(Net::HTTPResponse, code: '200', body: payload.to_json)
+    end
+    allow(Net::HTTP).to receive(:start).and_yield(http)
   end
 end

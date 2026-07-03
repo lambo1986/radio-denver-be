@@ -12,6 +12,26 @@ Human Frequency should treat AzuraCast as the broadcast engine, not the place wh
 
 This is currently a manual-export bridge. It prepares the package cleanly, but it does not upload files into AzuraCast yet.
 
+## Stage 3A: Read-Only Discovery
+
+Rails now has an admin-only discovery check at:
+
+```text
+GET /api/v1/station/azuracast_discovery
+```
+
+It uses the configured `AZURACAST_API_KEY` to inspect AzuraCast without changing the station. It reports:
+
+- API key configured as true/false only.
+- station id, shortcode, public player URL, and stream URL.
+- playlist names and ids.
+- media folder names and ids when the host exposes a compatible endpoint.
+- recent media examples with safe metadata only.
+- recommended playlist/folder matching from the Human Frequency stream manifest.
+- per-endpoint warnings when AzuraCast returns an unsupported shape or error.
+
+This endpoint must stay admin-only. It must not upload media, modify playlists, restart the station, or expose signed S3 URLs.
+
 ## Recommended First AzuraCast Setup
 
 1. Install AzuraCast on a small VPS using the official Docker install.
@@ -63,12 +83,15 @@ Use this before automating API uploads:
 
 ## Automation Path
 
-Once the manual test works, the next backend service should:
+Stage 3B should begin only after the discovery panel confirms the right station, playlist, and media path. The next backend service should:
 
-1. Download or stream each Rails/S3 asset from the manifest.
-2. Upload media to AzuraCast through its authenticated API.
-3. Assign uploaded media to the configured playlist.
-4. Save AzuraCast media IDs back into `delivery_manifest`.
-5. Mark `delivery_status` as `sent` only after AzuraCast confirms the upload and playlist assignment.
+1. Render one broadcast master in Human Frequency.
+2. Upload that master to AzuraCast through its authenticated media API.
+3. Assign the uploaded media to the configured playlist.
+4. Save AzuraCast media id, playlist id, remote path, upload timestamp, and assignment timestamp back into `delivery_manifest`.
+5. Add delivery fields such as `azuracast_media_id`, `azuracast_playlist_id`, `azuracast_remote_path`, `azuracast_uploaded_at`, and `azuracast_assigned_at` once the API response shape is verified.
+6. Mark `delivery_status` as `sent` only after AzuraCast confirms both upload and playlist assignment.
 
 Keep `queued` for packages that are exported but not yet accepted by AzuraCast.
+
+Stage 3C can add station control, but only behind explicit admin confirmation and only after the upload and playlist assignment path is stable.

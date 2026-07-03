@@ -43,7 +43,12 @@ RSpec.describe BroadcastMasterRenderer, type: :service do
       'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
       '-f', 'concat', '-safe', '0', '-i', anything, '-vn',
       '-c:a', 'libmp3lame', '-b:a', '192k', '-ar', '48000', '-ac', '2',
-      '-metadata', 'title=Midnight Brass', '-metadata', 'artist=Brother Frequency', anything
+      '-metadata', 'title=Midnight Brass',
+      '-metadata', 'artist=Brother Frequency',
+      '-metadata', 'album=Human Frequency Broadcast Masters',
+      '-metadata', "date=#{Time.current.year}",
+      '-metadata', 'comment=Broadcast master rendered for Human Frequency; normalized to -16 LUFS, 48 kHz stereo, 192k MP3.',
+      anything
     )
 
     master = playlist.reload.rendered_master_audio_file
@@ -53,6 +58,8 @@ RSpec.describe BroadcastMasterRenderer, type: :service do
     expect(master.content_type).to eq('audio/mpeg')
     expect(master.kind).to eq('full_show')
     expect(master.duration).to eq(210)
+    expect(master.notes).to include('Human Frequency')
+    expect(master.notes).to include('192k MP3')
     expect(s3_service).to have_received(:upload_file).with(anything, %r{\Abroadcast_masters/#{playlist.id}/})
   end
 

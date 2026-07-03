@@ -44,6 +44,80 @@ class AzuracastClient
     authenticated_get_json("/api/station/#{station_id}/files")
   end
 
+  def get_media_folders
+    authenticated_get_json("/api/station/#{station_id}/files/list")
+  end
+
+  def find_playlist_by_name(name)
+    return nil if name.blank?
+
+    normalized_playlists(get_playlists).find do |playlist|
+      playlist[:name].to_s.casecmp(name.to_s).zero?
+    end
+  end
+
+  def find_or_resolve_recommended_playlist(manifest_or_name)
+    name = recommended_playlist_name(manifest_or_name)
+    playlist = find_playlist_by_name(name)
+
+    {
+      name: name,
+      found: playlist.present?,
+      playlist: playlist
+    }
+  rescue StandardError => error
+    {
+      name: name,
+      found: false,
+      playlist: nil,
+      error: safe_error_message(error)
+    }
+  end
+
+  def discovery(recommended_playlist: nil, recommended_media_folder: nil, manifest: nil)
+    errors = []
+    fetched_at = Time.current.iso8601
+    station_payload = fetch_discovery_value(errors, 'station') { get_station_status }
+    playlist_payload = fetch_discovery_value(errors, 'playlists') { get_playlists }
+    media_payload = fetch_discovery_value(errors, 'media') { get_media_files }
+    folder_payload = fetch_discovery_value(errors, 'media_folders') { get_media_folders }
+
+    playlists = normalized_playlists(playlist_payload)
+    media_files = normalized_media_files(media_payload).first(10)
+    media_folders = normalized_media_folders(folder_payload)
+    requested_playlist_name = recommended_playlist.presence || recommended_playlist_name(manifest)
+    requested_folder_name = recommended_media_folder.presence || recommended_media_folder_name(manifest)
+    recommended_playlist_match = match_by_name(playlists, requested_playlist_name)
+    recommended_folder_match = match_by_name(media_folders, requested_folder_name)
+
+    {
+      ok: errors.empty?,
+      connected: station_payload.present? || playlist_payload.present? || media_payload.present? || folder_payload.present?,
+      lastDiscoveryAt: fetched_at,
+      stationId: station_id,
+      stationShortcode: station_shortcode,
+      baseUrl: base_url,
+      streamUrl: stream_url,
+      publicPlayerUrl: public_player_url,
+      apiKeyConfigured: api_key_configured?,
+      station: normalized_station(station_payload),
+      playlists: playlists,
+      mediaFolders: media_folders,
+      recentMedia: media_files,
+      recommendedPlaylist: {
+        name: requested_playlist_name,
+        found: recommended_playlist_match.present?,
+        playlist: recommended_playlist_match
+      },
+      recommendedMediaFolder: {
+        name: requested_folder_name,
+        found: recommended_folder_match.present?,
+        folder: recommended_folder_match
+      },
+      errors: errors
+    }
+  end
+
   def upload_media_file(_path, _remote_path: nil)
     raise NotImplementedError, 'TODO: upload rendered broadcast masters to AzuraCast station media.'
   end
@@ -191,6 +265,124 @@ class AzuracastClient
     raise "AzuraCast API returned HTTP #{response.code}" unless response.code.to_i.between?(200, 299)
 
     JSON.parse(response.body)
+  end
+
+  def fetch_discovery_value(errors, label)
+    yield
+  rescue StandardError => error
+    errors << { source: label, message: safe_error_message(error) }
+    nil
+  end
+
+  def normalized_station(payload)
+    data = first_record(payload)
+    return nil unless data
+
+    {
+      id: value_at(data, 'id'),
+      name: value_at(data, 'name'),
+      shortcode: value_at(data, 'shortcode'),
+      listenUrl: value_at(data, 'listen_url') || value_at(data, 'listenUrl') || stream_url,
+      publicPlayerUrl: value_at(data, 'public_player_url') || value_at(data, 'publicPlayerUrl') || public_player_url
+    }.compact
+  end
+
+  def normalized_playlists(payload)
+    records(payload).map do |playlist|
+      {
+        id: value_at(playlist, 'id'),
+        name: value_at(playlist, 'name'),
+        type: value_at(playlist, 'type'),
+        source: value_at(playlist, 'source'),
+        enabled: value_at(playlist, 'is_enabled') || value_at(playlist, 'isEnabled'),
+        numSongs: value_at(playlist, 'num_songs') || value_at(playlist, 'numSongs')
+      }.compact
+    end
+  end
+
+  def normalized_media_files(payload)
+    records(payload).map do |media|
+      {
+        id: value_at(media, 'id'),
+        name: value_at(media, 'name') || value_at(media, 'basename'),
+        path: value_at(media, 'path'),
+        title: value_at(media, 'title'),
+        artist: value_at(media, 'artist'),
+        album: value_at(media, 'album'),
+        length: value_at(media, 'length') || value_at(media, 'duration'),
+        playlist: value_at(media, 'playlist'),
+        updatedAt: value_at(media, 'mtime') || value_at(media, 'updated_at') || value_at(media, 'updatedAt')
+      }.compact
+    end
+  end
+
+  def normalized_media_folders(payload)
+    folders = records(payload).select { |record| folder_record?(record) }
+
+    folders.map do |folder|
+      {
+        id: value_at(folder, 'id') || value_at(folder, 'path'),
+        name: value_at(folder, 'name') || value_at(folder, 'path'),
+        path: value_at(folder, 'path')
+      }.compact
+    end
+  end
+
+  def records(payload)
+    case payload
+    when Array
+      payload
+    when Hash
+      candidates = payload['records'] || payload[:records] || payload['rows'] || payload[:rows] || payload['items'] || payload[:items] || payload['data'] || payload[:data]
+      candidates.is_a?(Array) ? candidates : [payload]
+    else
+      []
+    end
+  end
+
+  def first_record(payload)
+    records(payload).first
+  end
+
+  def value_at(record, key)
+    return unless record.respond_to?(:[])
+
+    record[key] || record[key.to_sym]
+  end
+
+  def folder_record?(record)
+    value_at(record, 'type').to_s.casecmp('directory').zero? ||
+      value_at(record, 'is_dir') == true ||
+      value_at(record, 'isDir') == true ||
+      value_at(record, 'is_folder') == true ||
+      value_at(record, 'isFolder') == true
+  end
+
+  def match_by_name(records, name)
+    return nil if name.blank?
+
+    records.find do |record|
+      [record[:name], record[:path], record['name'], record['path']].compact.any? { |value| value.to_s.casecmp(name.to_s).zero? }
+    end
+  end
+
+  def recommended_playlist_name(manifest_or_name)
+    return manifest_or_name if manifest_or_name.is_a?(String)
+    return if manifest_or_name.blank?
+
+    value_at(value_at(manifest_or_name, 'provider') || {}, 'recommended_playlist')
+  end
+
+  def recommended_media_folder_name(manifest)
+    return if manifest.blank?
+
+    value_at(value_at(manifest, 'provider') || {}, 'recommended_media_folder')
+  end
+
+  def safe_error_message(error)
+    message = error.message.to_s
+    secret = ENV['AZURACAST_API_KEY'].presence
+    secret ? message.gsub(secret, '[redacted]') : message
   end
 
   def base_url

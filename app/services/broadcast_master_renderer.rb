@@ -7,6 +7,8 @@ class BroadcastMasterRenderer
   TARGET_LOUDNESS = ENV.fetch('BROADCAST_TARGET_LUFS', '-16')
   TRUE_PEAK = ENV.fetch('BROADCAST_TRUE_PEAK_DB', '-1.5')
   LOUDNESS_RANGE = ENV.fetch('BROADCAST_LOUDNESS_RANGE', '11')
+  OUTPUT_SAMPLE_RATE = '48000'
+  OUTPUT_BITRATE = '192k'
 
   def initialize(playlist, s3_service: nil, downloader: nil, command_runner: Open3)
     @playlist = playlist
@@ -72,7 +74,7 @@ class BroadcastMasterRenderer
         '-i', input_path,
         '-vn',
         '-af', "loudnorm=I=#{TARGET_LOUDNESS}:TP=#{TRUE_PEAK}:LRA=#{LOUDNESS_RANGE}",
-        '-ar', '48000',
+        '-ar', OUTPUT_SAMPLE_RATE,
         '-ac', '2',
         '-c:a', 'pcm_s16le',
         output_path
@@ -91,11 +93,14 @@ class BroadcastMasterRenderer
       '-i', concat_path,
       '-vn',
       '-c:a', 'libmp3lame',
-      '-b:a', '192k',
-      '-ar', '48000',
+      '-b:a', OUTPUT_BITRATE,
+      '-ar', OUTPUT_SAMPLE_RATE,
       '-ac', '2',
       '-metadata', "title=#{playlist.name}",
       '-metadata', "artist=#{playlist.host_name}",
+      '-metadata', 'album=Human Frequency Broadcast Masters',
+      '-metadata', "date=#{Time.current.year}",
+      '-metadata', "comment=#{master_comment}",
       output_path
     )
   end
@@ -127,7 +132,7 @@ class BroadcastMasterRenderer
         content_type: 'audio/mpeg',
         duration: playlist.duration_seconds,
         s3_key: object_key,
-        notes: 'Broadcast master normalized to -16 LUFS, 48 kHz stereo, 192 kbps MP3.'
+        notes: master_comment
       )
       playlist.update!(
         rendered_master_audio_file: master,
@@ -155,5 +160,9 @@ class BroadcastMasterRenderer
 
   def master_filename
     "#{playlist.name.parameterize}-broadcast-master.mp3"
+  end
+
+  def master_comment
+    "Broadcast master rendered for Human Frequency; normalized to #{TARGET_LOUDNESS} LUFS, #{OUTPUT_SAMPLE_RATE.to_i / 1000} kHz stereo, #{OUTPUT_BITRATE} MP3."
   end
 end
