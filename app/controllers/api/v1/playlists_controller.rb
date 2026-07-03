@@ -188,7 +188,7 @@ class Api::V1::PlaylistsController < ApplicationController
   end
 
   def deliver_to_azuracast
-    delivered_playlist = AzuracastMasterDeliveryService.new(@playlist).deliver
+    delivered_playlist = AzuracastMasterDeliveryService.deliver_broadcast_master_to_azuracast(@playlist.id)
     render json: serialize_playlist(delivered_playlist)
   rescue AzuracastMasterDeliveryService::DeliveryError => error
     render_transition_error(error.message)

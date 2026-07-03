@@ -14,18 +14,29 @@ RSpec.describe AzuracastMasterDeliveryService, type: :service do
   end
   let(:stream_manifest) do
     {
+      'show' => {
+        'package_mode' => 'single_master'
+      },
       'provider' => {
         'recommended_playlist' => 'test show',
         'recommended_media_folder' => 'shows'
-      }
+      },
+      'assets' => [
+        {
+          'role' => 'broadcast_master',
+          's3_key' => 'broadcast_masters/master.mp3'
+        }
+      ]
     }
   end
   let(:azuracast_client) do
     instance_double(
       AzuracastClient,
+      api_key_configured?: true,
       find_playlist_by_name: { id: 6814, name: 'test show' },
       upload_media_file: { 'id' => 123, 'path' => 'shows/midnight-brass-broadcast-master.mp3', 'playlists' => [] },
-      assign_media_to_playlist: { 'id' => 123, 'path' => 'shows/midnight-brass-broadcast-master.mp3', 'playlists' => [{ 'id' => 6814 }] }
+      assign_media_to_playlist: { 'id' => 123, 'path' => 'shows/midnight-brass-broadcast-master.mp3', 'playlists' => [{ 'id' => 6814 }] },
+      get_media_file: { 'id' => 123, 'playlists' => [{ 'id' => 6814 }] }
     )
   end
   let(:s3_service) { instance_double(AwsS3Service) }
@@ -55,6 +66,14 @@ RSpec.describe AzuracastMasterDeliveryService, type: :service do
       'playlist_name' => 'test show',
       'remote_path' => 'shows/midnight-brass-broadcast-master.mp3'
     )
+    expect(playlist.delivery_manifest).not_to have_key('azuracast_error')
+  end
+
+  it 'can deliver by show id' do
+    service = instance_double(described_class, deliver: playlist)
+    allow(described_class).to receive(:new).with(playlist).and_return(service)
+
+    expect(described_class.deliver_broadcast_master_to_azuracast(playlist.id)).to eq(playlist)
   end
 
   it 'fails clearly when the configured AzuraCast playlist does not exist' do
@@ -66,6 +85,7 @@ RSpec.describe AzuracastMasterDeliveryService, type: :service do
     end.to raise_error(described_class::DeliveryError, /was not found/)
 
     expect(playlist.reload.delivery_status).to eq('failed')
+    expect(playlist.delivery_manifest['azuracast_error']['message']).to include('was not found')
   end
 
   it 'requires a scheduled show with a ready rendered master' do
@@ -74,5 +94,54 @@ RSpec.describe AzuracastMasterDeliveryService, type: :service do
     expect do
       described_class.new(playlist, azuracast_client: azuracast_client, s3_service: s3_service).deliver
     end.to raise_error(described_class::DeliveryError, /Render the broadcast master/)
+  end
+
+  it 'requires a single-master manifest' do
+    playlist.update!(delivery_manifest: stream_manifest.deep_merge('show' => { 'package_mode' => 'ordered_assets' }))
+
+    expect do
+      described_class.new(playlist, azuracast_client: azuracast_client, s3_service: s3_service).deliver
+    end.to raise_error(described_class::DeliveryError, /single-master/)
+  end
+
+  it 'requires a broadcast master asset in the manifest' do
+    playlist.update!(delivery_manifest: stream_manifest.merge('assets' => []))
+
+    expect do
+      described_class.new(playlist, azuracast_client: azuracast_client, s3_service: s3_service).deliver
+    end.to raise_error(described_class::DeliveryError, /broadcast master asset/)
+  end
+
+  it 'requires a server-side downloaded master file' do
+    allow(s3_service).to receive(:download_file)
+
+    expect do
+      described_class.new(playlist, azuracast_client: azuracast_client, s3_service: s3_service).deliver
+    end.to raise_error(described_class::DeliveryError, /could not be downloaded/)
+  end
+
+  it 'does not mark sent when AzuraCast does not confirm playlist assignment' do
+    allow(azuracast_client).to receive(:assign_media_to_playlist).and_return({ 'id' => 123, 'playlists' => [] })
+    allow(azuracast_client).to receive(:get_media_file).and_return({ 'id' => 123, 'playlists' => [] })
+
+    expect do
+      described_class.new(playlist, azuracast_client: azuracast_client, s3_service: s3_service).deliver
+    end.to raise_error(described_class::DeliveryError, /did not confirm/)
+
+    playlist.reload
+    expect(playlist.delivery_status).to eq('failed')
+    expect(playlist.delivery_manifest['azuracast_error']['message']).to include('did not confirm')
+  end
+
+  it 'redacts signed S3 urls in stored failure messages' do
+    signed_url = 'https://bucket.s3.amazonaws.com/master.mp3?X-Amz-Signature=secret'
+    allow(azuracast_client).to receive(:upload_media_file).and_raise("failed for #{signed_url}")
+
+    expect do
+      described_class.new(playlist, azuracast_client: azuracast_client, s3_service: s3_service).deliver
+    end.to raise_error(described_class::DeliveryError)
+
+    expect(playlist.reload.delivery_manifest['azuracast_error']['message']).to include('[redacted-s3-url]')
+    expect(playlist.delivery_manifest['azuracast_error']['message']).not_to include('X-Amz-Signature')
   end
 end

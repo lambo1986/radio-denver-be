@@ -44,6 +44,10 @@ class AzuracastClient
     authenticated_get_json("/api/station/#{station_id}/files")
   end
 
+  def get_media_file(media_id)
+    authenticated_get_json("/api/station/#{station_id}/file/#{media_id}")
+  end
+
   def get_media_folders
     authenticated_get_json("/api/station/#{station_id}/files/list")
   end

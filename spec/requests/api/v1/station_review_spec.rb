@@ -448,13 +448,12 @@ RSpec.describe 'Station review workflow', type: :request do
       master = create(:audio_file, user: playlist.user, kind: 'full_show', s3_key: 'broadcast_masters/master.mp3')
       playlist.update!(rendered_master_audio_file: master, render_status: 'ready')
       delivered_playlist = playlist.tap { |item| item.delivery_status = 'sent' }
-      service = instance_double(AzuracastMasterDeliveryService, deliver: delivered_playlist)
-      allow(AzuracastMasterDeliveryService).to receive(:new).with(playlist).and_return(service)
+      allow(AzuracastMasterDeliveryService).to receive(:deliver_broadcast_master_to_azuracast).with(playlist.id).and_return(delivered_playlist)
 
       post "/api/v1/playlists/#{playlist.id}/deliver_to_azuracast", headers: headers
 
       expect(response).to have_http_status(:ok)
-      expect(AzuracastMasterDeliveryService).to have_received(:new).with(playlist)
+      expect(AzuracastMasterDeliveryService).to have_received(:deliver_broadcast_master_to_azuracast).with(playlist.id)
       expect(JSON.parse(response.body)['delivery_status']).to eq('sent')
     end
 

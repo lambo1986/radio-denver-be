@@ -101,4 +101,19 @@ Current live discovery showed these AzuraCast playlists:
 
 Before using production upload automation, either create/rename the intended production playlist to `Human Frequency Shows`, or set `AZURACAST_PLAYLIST_NAME` to the exact existing playlist name. Do not leave this ambiguous; the backend will reject upload instead of sending shows to the wrong playlist.
 
-Stage 3C can add station control, but only behind explicit admin confirmation and only after the upload and playlist assignment path is stable.
+## Stage 3C: Guarded Upload and Playlist Assignment
+
+Admins can upload a rendered broadcast master to AzuraCast from Station Review after:
+
+- the show is scheduled,
+- the AzuraCast stream package has been queued,
+- the stream package is `single_master`,
+- the broadcast master asset exists in the manifest,
+- the rendered master has a durable S3 key,
+- Rails can download the master server-side,
+- an AzuraCast playlist id or exact playlist name can be resolved,
+- the API key is configured.
+
+The backend does not use stale signed URLs from old manifests when a durable Rails/S3 reference exists. It marks delivery as `sent` only after AzuraCast returns an uploaded media id and confirms the playlist assignment. Failures set `delivery_status` to `failed` and store a sanitized `azuracast_error` in the manifest without S3 query strings, signatures, or API keys.
+
+Stage 3D can add station control, but only behind explicit admin confirmation and only after real upload and playlist assignment have been tested with a non-critical show.
