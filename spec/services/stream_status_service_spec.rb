@@ -67,8 +67,9 @@ RSpec.describe StreamStatusService, type: :service do
       base_url: 'https://radio.example.com',
       station_id: '1',
       station_shortcode: 'human_frequency',
+      public_player_url: nil,
       api_key_configured: true,
-      now_playing_url: 'https://radio.example.com/api/nowplaying/human_frequency'
+      now_playing_url: 'https://radio.example.com/api/nowplaying_static/human_frequency.json'
     )
     expect(status.to_s).not_to include('secret')
   end

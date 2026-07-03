@@ -19,6 +19,7 @@ This is currently a manual-export bridge. It prepares the package cleanly, but i
 3. Create an AutoDJ playlist named `Human Frequency Shows`.
 4. Create an API key from the AzuraCast user menu.
 5. Add the public stream URL to the frontend as `NEXT_PUBLIC_STREAM_URL`.
+6. Configure Rails with the public player, stream, and now-playing endpoints so Human Frequency can display live metadata.
 
 ## Backend Environment Variables
 
@@ -26,19 +27,25 @@ Set these when an AzuraCast instance exists:
 
 ```bash
 STREAM_STATION_NAME="Human Frequency"
-AZURACAST_BASE_URL="https://radio.example.com"
-AZURACAST_STATION_ID="1"
+AZURACAST_BASE_URL="https://a5.asurahosting.com"
+AZURACAST_STATION_ID="720"
 AZURACAST_STATION_SHORTCODE="human_frequency"
-AZURACAST_STREAM_URL="https://radio.example.com/listen/human_frequency/radio.mp3"
+AZURACAST_PUBLIC_PLAYER_URL="https://a5.asurahosting.com/public/human_frequency"
+AZURACAST_STREAM_URL="https://a5.asurahosting.com:7390/radio.mp3"
+AZURACAST_NOW_PLAYING_URL="https://a5.asurahosting.com/api/nowplaying_static/human_frequency.json"
 AZURACAST_API_KEY="replace-with-azuracast-api-key"
 AZURACAST_PLAYLIST_NAME="Human Frequency Shows"
 ```
 
+`AZURACAST_API_KEY` is server-only. Do not prefix it with `NEXT_PUBLIC_`, do not expose it in frontend code, and do not commit a real value.
+
 ## Frontend Environment Variable
 
 ```bash
-NEXT_PUBLIC_STREAM_URL="https://radio.example.com/listen/human_frequency/radio.mp3"
+NEXT_PUBLIC_STREAM_URL="https://a5.asurahosting.com:7390/radio.mp3"
 ```
+
+The frontend should get now-playing metadata from Rails at `/api/v1/station/now_playing`, not directly from authenticated AzuraCast APIs.
 
 ## Manual Test Path
 
