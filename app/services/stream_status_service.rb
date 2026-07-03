@@ -2,6 +2,12 @@ require 'net/http'
 
 class StreamStatusService
   CHECK_TIMEOUT_SECONDS = 5
+  DEFAULT_BASE_URL = 'https://a5.asurahosting.com'
+  DEFAULT_STATION_ID = '720'
+  DEFAULT_STATION_SHORTCODE = 'human_frequency'
+  DEFAULT_STREAM_URL = 'https://a5.asurahosting.com:7390/radio.mp3'
+  DEFAULT_PUBLIC_PLAYER_URL = 'https://a5.asurahosting.com/public/human_frequency'
+  DEFAULT_NOW_PLAYING_URL = 'https://a5.asurahosting.com/api/nowplaying_static/human_frequency.json'
 
   def status
     stream_url = configured_stream_url
@@ -58,21 +64,23 @@ class StreamStatusService
     shortcode = ENV['AZURACAST_STATION_SHORTCODE'].presence
 
     {
-      configured: base_url.present? && station_id.present? && ENV['AZURACAST_API_KEY'].present?,
+      configured: base_url.present? && station_id.present?,
       base_url: base_url,
       station_id: station_id,
       station_shortcode: shortcode,
+      public_player_url: ENV['AZURACAST_PUBLIC_PLAYER_URL'].presence,
       api_key_configured: ENV['AZURACAST_API_KEY'].present?,
       now_playing_url: now_playing_url(base_url, station_id, shortcode)
     }
   end
 
   def now_playing_url(base_url, station_id, shortcode)
+    return ENV['AZURACAST_NOW_PLAYING_URL'] if ENV['AZURACAST_NOW_PLAYING_URL'].present?
     return if base_url.blank?
 
     identifier = shortcode.presence || station_id
     return if identifier.blank?
 
-    "#{base_url.to_s.chomp('/').presence}/api/nowplaying/#{identifier}"
+    "#{base_url.to_s.chomp('/').presence}/api/nowplaying_static/#{identifier}.json"
   end
 end
