@@ -42,9 +42,10 @@ class StreamDeliveryService
         total_duration_seconds: total_duration_seconds,
         package_mode: master_audio_file.present? ? 'single_master' : 'ordered_assets'
       },
+      render_quality_report: playlist.delivery_manifest['render_quality_report'],
       assets: audio_assets,
       playout: playout_items
-    }
+    }.compact
   end
 
   def station_name
