@@ -147,7 +147,11 @@ RSpec.describe AzuracastClient, type: :service do
     expect(request).to be_a(Net::HTTP::Post)
     expect(request.path).to eq('/api/station/720/files')
     expect(request['Authorization']).to eq('Bearer super-secret-key')
-    expect(request.content_type).to include('multipart/form-data')
+    expect(request.content_type).to eq('application/json')
+    expect(JSON.parse(request.body)).to eq(
+      'path' => 'shows/master.mp3',
+      'file' => Base64.strict_encode64('audio')
+    )
   end
 
   it 'assigns media to a playlist by updating the media file' do

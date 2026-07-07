@@ -1,4 +1,5 @@
 require 'net/http'
+require 'base64'
 
 class AzuracastClient
   CHECK_TIMEOUT_SECONDS = 5
@@ -125,18 +126,14 @@ class AzuracastClient
   def upload_media_file(path, remote_path: nil)
     raise 'Audio file does not exist for AzuraCast upload.' unless File.exist?(path)
 
-    file = File.open(path, 'rb')
-    form = [['file', file]]
-    form.unshift(['path', remote_path]) if remote_path.present?
-
     authenticated_request(
       Net::HTTP::Post,
       "/api/station/#{station_id}/files",
-      form: form,
-      form_encoding: 'multipart/form-data'
+      json: {
+        path: remote_path.presence || File.basename(path),
+        file: Base64.strict_encode64(File.binread(path))
+      }
     )
-  ensure
-    file&.close
   end
 
   def update_media_file(media_id, attributes)
