@@ -16,6 +16,14 @@ class StreamDeliveryService
       delivery_manifest: build_manifest(reference),
       delivered_at: Time.current
     )
+    playlist.record_timeline_event!(
+      'stream_package_queued',
+      message: "Stream package queued for #{target}.",
+      metadata: {
+        delivery_target: target,
+        delivery_reference: reference
+      }
+    )
 
     playlist
   end
@@ -119,7 +127,6 @@ class StreamDeliveryService
           duration_seconds: master_audio_file.duration,
           start_offset_seconds: 0,
           end_offset_seconds: master_audio_file.duration,
-          audio_url: master_audio_file.public_url,
           audio_file_id: master_audio_file.id,
           s3_key: master_audio_file.s3_key
         }
@@ -137,7 +144,7 @@ class StreamDeliveryService
         duration_seconds: duration_seconds,
         start_offset_seconds: elapsed_seconds,
         end_offset_seconds: elapsed_seconds + duration_seconds,
-        audio_url: song.audio_file&.public_url || song.file_url,
+        external_audio_url: safe_external_url(song.file_url),
         audio_file_id: song.audio_file_id,
         s3_key: song.audio_file&.s3_key
       }
@@ -158,7 +165,7 @@ class StreamDeliveryService
       role: 'external_audio',
       title: song.name,
       artist: song.artist,
-      url: song.file_url,
+      external_audio_url: safe_external_url(song.file_url),
       file_name: song.file_name
     }
   end
@@ -172,9 +179,19 @@ class StreamDeliveryService
       artist: artist.presence || audio_file.artist,
       file_name: audio_file.name,
       content_type: audio_file.content_type,
-      url: audio_file.public_url,
       s3_key: audio_file.s3_key
     }
+  end
+
+  def safe_external_url(url)
+    return if url.blank?
+
+    uri = URI.parse(url)
+    return '[redacted-signed-url]' if uri.query.to_s.match?(/X-Amz-/i)
+
+    url
+  rescue URI::InvalidURIError
+    nil
   end
 
   def total_duration_seconds

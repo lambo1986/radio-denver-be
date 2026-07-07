@@ -73,7 +73,9 @@ RSpec.describe 'Station review workflow', type: :request do
       patch "/api/v1/playlists/#{playlist.id}/mark_ready", headers: headers
 
       expect(response).to have_http_status(:ok)
-      expect(JSON.parse(response.body)['status']).to eq('ready')
+      body = JSON.parse(response.body)
+      expect(body['status']).to eq('ready')
+      expect(body['timeline_events'].last['event_type']).to eq('approved')
     end
 
     it 'rejects an empty submitted show' do
@@ -336,7 +338,31 @@ RSpec.describe 'Station review workflow', type: :request do
         'start_offset_seconds' => 0,
         'end_offset_seconds' => body['delivery_manifest']['playout'].first['duration_seconds']
       )
+      expect(body['delivery_manifest'].to_json).not_to include('X-Amz-')
+      expect(body['delivery_manifest']['assets'].first).not_to have_key('url')
+      expect(body['delivery_manifest']['playout'].first).not_to have_key('audio_url')
       expect(body['delivered_at']).to be_present
+    end
+
+    it 'redacts signed url query strings from legacy stored delivery manifests' do
+      signed_url = 'https://bucket.s3.amazonaws.com/audio/show.mp3?X-Amz-Signature=secret&X-Amz-Credential=private'
+      playlist = create(
+        :playlist,
+        status: 'scheduled',
+        scheduled_at: 1.hour.from_now,
+        delivery_manifest: {
+          'assets' => [{ 'url' => signed_url }],
+          'playout' => [{ 'audio_url' => signed_url }]
+        }
+      )
+
+      get '/api/v1/playlists?scope=station', headers: headers
+
+      body = JSON.parse(response.body)
+      manifest = body.find { |item| item['id'] == playlist.id }['delivery_manifest']
+      expect(manifest.to_json).not_to include('X-Amz-Signature')
+      expect(manifest['assets'].first['url']).to eq('https://bucket.s3.amazonaws.com/audio/show.mp3?[redacted-signature]')
+      expect(manifest['playout'].first['audio_url']).to eq('https://bucket.s3.amazonaws.com/audio/show.mp3?[redacted-signature]')
     end
 
     it 'adds AzuraCast handoff metadata when queued for AzuraCast' do
@@ -462,6 +488,36 @@ RSpec.describe 'Station review workflow', type: :request do
       playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
 
       post "/api/v1/playlists/#{playlist.id}/deliver_to_azuracast",
+           headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: host.id)}" }
+
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
+
+  describe 'POST /api/v1/playlists/:id/delivery_test' do
+    it 'lets admins run the AzuraCast delivery test workflow' do
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+      add_valid_track(playlist)
+      report = {
+        'status' => 'completed',
+        'steps' => [{ 'key' => 'render_master', 'status' => 'succeeded' }]
+      }
+      service = instance_double(AzuracastDeliveryTestService, run: report)
+      allow(AzuracastDeliveryTestService).to receive(:new).with(playlist, actor: admin).and_return(service)
+
+      post "/api/v1/playlists/#{playlist.id}/delivery_test", headers: headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['playlist']['id']).to eq(playlist.id)
+      expect(body['report']['status']).to eq('completed')
+    end
+
+    it 'does not let hosts run the delivery test' do
+      host = create(:user)
+      playlist = create(:playlist, status: 'scheduled', scheduled_at: 1.hour.from_now)
+
+      post "/api/v1/playlists/#{playlist.id}/delivery_test",
            headers: { 'Authorization' => "Bearer #{JsonWebTokenService.encode(user_id: host.id)}" }
 
       expect(response).to have_http_status(:forbidden)

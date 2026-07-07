@@ -9,8 +9,9 @@ Human Frequency should treat AzuraCast as the broadcast engine, not the place wh
 3. Admins schedule approved shows.
 4. Admins queue a stream package with the `azuracast` delivery target.
 5. Rails stores a `delivery_manifest` with show metadata, ordered assets, playout order, and AzuraCast handoff details.
+6. Admins render one broadcast master, upload it to AzuraCast, and verify playlist assignment from Station Review.
 
-This is currently a manual-export bridge. It prepares the package cleanly, but it does not upload files into AzuraCast yet.
+This bridge now supports guarded upload of a rendered broadcast master. It still avoids risky station-control actions such as starting, stopping, or restarting AzuraCast.
 
 ## Stage 3A: Read-Only Discovery
 
@@ -68,23 +69,32 @@ NEXT_PUBLIC_STREAM_URL="https://a5.asurahosting.com:7390/radio.mp3"
 
 The frontend should get now-playing metadata from Rails at `/api/v1/station/now_playing`, not directly from authenticated AzuraCast APIs.
 
-## Manual Test Path
+## Admin Delivery Test Path
 
-Use this before automating API uploads:
+Use this with one non-critical scheduled show before relying on the workflow for real programming:
 
 1. Create and submit a short show in Human Frequency.
 2. Mark it ready in Station Review.
 3. Schedule it.
 4. Select `AzuraCast AutoDJ` as the stream target.
-5. Click `Queue Stream Package`.
-6. Open the stream export manifest.
-7. Upload the full-show file or ordered assets into AzuraCast media.
-8. Assign the media to the recommended playlist.
-9. Confirm the stream URL plays on the Human Frequency listener page.
+5. Click `Build Broadcast Master`.
+6. Wait until the master is ready and preview it.
+7. Click `Queue Stream Package`.
+8. Click `Run Delivery Test`.
+9. Review the step report:
+   - render master
+   - queue AzuraCast package
+   - upload master
+   - confirm playlist assignment
+   - check now-playing visibility
+10. Confirm the uploaded media appears in AzuraCast under the configured playlist.
+11. Confirm the Human Frequency listener page can reach the stream and now-playing data.
+
+The now-playing step only reports a current playback match when AzuraCast actually reports the uploaded show as playing. If the upload succeeded but AutoDJ has not played it yet, the step is marked `skipped`, not falsely confirmed.
 
 ## Automation Path
 
-Stage 3B should begin only after the discovery panel confirms the right station, playlist, and media path. The upload service now:
+The discovery panel should confirm the right station, playlist, and media path before uploads. The upload service now:
 
 1. Render one broadcast master in Human Frequency.
 2. Upload that master to AzuraCast through its authenticated media API.
@@ -94,12 +104,7 @@ Stage 3B should begin only after the discovery panel confirms the right station,
 
 Keep `queued` for packages that are exported but not yet accepted by AzuraCast.
 
-Current live discovery showed these AzuraCast playlists:
-
-- `default`
-- `test show`
-
-Before using production upload automation, either create/rename the intended production playlist to `Human Frequency Shows`, or set `AZURACAST_PLAYLIST_NAME` to the exact existing playlist name. Do not leave this ambiguous; the backend will reject upload instead of sending shows to the wrong playlist.
+The intended production playlist is `Human Frequency Shows`. Set `AZURACAST_PLAYLIST_NAME` to that exact name, or set `AZURACAST_PLAYLIST_ID` to the exact playlist id. Do not leave this ambiguous; the backend rejects upload instead of sending shows to the wrong playlist.
 
 ## Stage 3C: Guarded Upload and Playlist Assignment
 
@@ -117,3 +122,23 @@ Admins can upload a rendered broadcast master to AzuraCast from Station Review a
 The backend does not use stale signed URLs from old manifests when a durable Rails/S3 reference exists. It marks delivery as `sent` only after AzuraCast returns an uploaded media id and confirms the playlist assignment. Failures set `delivery_status` to `failed` and store a sanitized `azuracast_error` in the manifest without S3 query strings, signatures, or API keys.
 
 Stage 3D can add station control, but only behind explicit admin confirmation and only after real upload and playlist assignment have been tested with a non-critical show.
+
+## Timeline and Audit Trail
+
+Human Frequency records timeline events for important show workflow changes:
+
+- draft saved
+- submitted
+- approved
+- needs edits
+- rejected
+- scheduled
+- render requested
+- rendered
+- render failed
+- stream package queued
+- uploaded
+- upload failed
+- delivery test
+
+Hosts can see timeline history on their profile and when reopening a show. Admins can see it in Station Review. Delivery-test reports are stored in `delivery_manifest.azuracast_delivery_test`.

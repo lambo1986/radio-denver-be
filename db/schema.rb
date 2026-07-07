@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_06_10_223000) do
+ActiveRecord::Schema[7.1].define(version: 2026_07_03_194000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -53,6 +53,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_10_223000) do
     t.index ["invited_by_id"], name: "index_host_invitations_on_invited_by_id"
     t.index ["used_at"], name: "index_host_invitations_on_used_at"
     t.index ["used_by_id"], name: "index_host_invitations_on_used_by_id"
+  end
+
+  create_table "playlist_timeline_events", force: :cascade do |t|
+    t.bigint "playlist_id", null: false
+    t.bigint "actor_id"
+    t.string "event_type", null: false
+    t.string "actor_name"
+    t.text "message"
+    t.boolean "system_generated", default: true, null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "occurred_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_id"], name: "index_playlist_timeline_events_on_actor_id"
+    t.index ["playlist_id", "event_type", "occurred_at"], name: "index_playlist_timeline_on_playlist_event_time"
+    t.index ["playlist_id"], name: "index_playlist_timeline_events_on_playlist_id"
   end
 
   create_table "playlists", force: :cascade do |t|
@@ -128,6 +144,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_10_223000) do
   add_foreign_key "audio_files", "users"
   add_foreign_key "host_invitations", "users", column: "invited_by_id"
   add_foreign_key "host_invitations", "users", column: "used_by_id"
+  add_foreign_key "playlist_timeline_events", "playlists"
+  add_foreign_key "playlist_timeline_events", "users", column: "actor_id"
   add_foreign_key "playlists", "audio_files", column: "full_show_audio_file_id"
   add_foreign_key "playlists", "audio_files", column: "rendered_master_audio_file_id"
   add_foreign_key "playlists", "users"

@@ -5,6 +5,7 @@ class Playlist < ApplicationRecord
   belongs_to :full_show_audio_file, class_name: 'AudioFile', optional: true
   belongs_to :rendered_master_audio_file, class_name: 'AudioFile', optional: true
   has_many :songs, -> { order(:position, :created_at) }, dependent: :destroy
+  has_many :timeline_events, class_name: 'PlaylistTimelineEvent', dependent: :destroy
   accepts_nested_attributes_for :songs, allow_destroy: true
 
   validates :name, presence: true
@@ -59,6 +60,20 @@ class Playlist < ApplicationRecord
         other_end = other.scheduled_at + other.duration_seconds.seconds
         other.scheduled_at < proposed_end && other_end > proposed_start
       end
+  end
+
+  def record_timeline_event!(event_type, actor: nil, message: nil, metadata: {}, system_generated: true, occurred_at: Time.current, dedupe: false)
+    return if dedupe && timeline_events.where(event_type: event_type).exists?
+
+    timeline_events.create!(
+      event_type: event_type,
+      actor: actor,
+      actor_name: actor&.host_name.presence || actor&.full_name,
+      message: message,
+      metadata: metadata.compact,
+      system_generated: system_generated,
+      occurred_at: occurred_at
+    )
   end
 
   private

@@ -242,6 +242,15 @@ class BroadcastMasterRenderer
         rendered_at: Time.current,
         delivery_manifest: playlist.delivery_manifest.deep_merge('render_quality_report' => finalized_render_report(master_path, object_key))
       )
+      playlist.record_timeline_event!(
+        'rendered',
+        message: 'Broadcast master rendered.',
+        metadata: {
+          audio_file_id: master.id,
+          s3_key: object_key,
+          render_status: 'ready'
+        }
+      )
     end
 
     cleanup_previous_master(previous_master, master)
@@ -311,6 +320,11 @@ class BroadcastMasterRenderer
       rendered_at: Time.current.iso8601
     ).deep_stringify_keys
     playlist.update_columns(delivery_manifest: playlist.delivery_manifest.deep_merge('render_quality_report' => report)) if playlist.persisted?
+    playlist.record_timeline_event!(
+      'render_failed',
+      message: message,
+      metadata: { render_status: 'failed' }
+    ) if playlist.persisted?
   rescue StandardError => error
     Rails.logger.error("Render quality report persistence failed for playlist #{playlist.id}: #{error.message}")
   end

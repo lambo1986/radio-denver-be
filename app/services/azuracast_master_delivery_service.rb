@@ -190,6 +190,17 @@ class AzuracastMasterDeliveryService
       delivery_manifest: manifest,
       delivered_at: now
     )
+    playlist.record_timeline_event!(
+      'uploaded',
+      message: 'Broadcast master uploaded to AzuraCast and assigned to the configured playlist.',
+      metadata: {
+        azuracast_media_id: media[:id],
+        azuracast_playlist_id: target_playlist.fetch(:id),
+        azuracast_playlist_name: target_playlist[:name] || target_playlist['name'],
+        remote_path: remote_path
+      },
+      occurred_at: now
+    )
   end
 
   def safe_assignment_summary(assignment)
@@ -225,6 +236,11 @@ class AzuracastMasterDeliveryService
     playlist.update_columns(
       delivery_status: 'failed',
       delivery_manifest: failed_manifest
+    )
+    playlist.record_timeline_event!(
+      'upload_failed',
+      message: sanitize_error(message),
+      metadata: { delivery_target: 'azuracast' }
     )
   end
 

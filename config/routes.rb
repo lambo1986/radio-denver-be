@@ -33,6 +33,7 @@ Rails.application.routes.draw do
           post :render_master
           post :deliver
           post :deliver_to_azuracast
+          post :delivery_test
         end
       end
 

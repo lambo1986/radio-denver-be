@@ -3,8 +3,8 @@ class Api::V1::PlaylistsController < ApplicationController
   before_action :authenticate_request, except: :public_schedule
   before_action :set_playlist, only: [:show, :update]
   before_action :set_destroyable_playlist, only: :destroy
-  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver, :deliver_to_azuracast]
-  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver, :deliver_to_azuracast]
+  before_action :require_admin, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver, :deliver_to_azuracast, :delivery_test]
+  before_action :set_station_playlist, only: [:mark_ready, :request_changes, :reopen_for_edits, :reject, :schedule, :render_master, :deliver, :deliver_to_azuracast, :delivery_test]
 
   def index
     playlists = playlist_scope.includes(:full_show_audio_file, songs: :audio_file).order(created_at: :desc)
@@ -37,6 +37,7 @@ class Api::V1::PlaylistsController < ApplicationController
     end
 
     if playlist.save
+      record_show_save_event(playlist, created: true)
       render json: serialize_playlist(playlist), status: :created
     else
       cleanup_full_show_upload(uploaded_full_show)
@@ -75,6 +76,7 @@ class Api::V1::PlaylistsController < ApplicationController
     if updated
       cleanup_replaced_full_show(previous_full_show, uploaded_full_show)
       invalidate_rendered_master(previous_rendered_master)
+      record_show_save_event(@playlist)
       render json: serialize_playlist(@playlist)
     else
       cleanup_full_show_upload(uploaded_full_show, destroy_record: false)
@@ -103,6 +105,13 @@ class Api::V1::PlaylistsController < ApplicationController
     return render_confirmation_errors if @playlist.confirmation_issues.any?
 
     if @playlist.update(status: 'ready', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      @playlist.record_timeline_event!(
+        'approved',
+        actor: @current_user,
+        message: 'Show approved for scheduling.',
+        metadata: { review_notes: review_params[:review_notes] },
+        system_generated: false
+      )
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -111,6 +120,13 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def request_changes
     if @playlist.update(status: 'needs_edits', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      @playlist.record_timeline_event!(
+        'needs_edits',
+        actor: @current_user,
+        message: review_params[:review_notes].presence || 'Admin requested show edits.',
+        metadata: { review_notes: review_params[:review_notes] },
+        system_generated: false
+      )
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -135,6 +151,13 @@ class Api::V1::PlaylistsController < ApplicationController
       reviewed_at: Time.current
     )
       cleanup_audio_file(previous_rendered_master)
+      @playlist.record_timeline_event!(
+        'needs_edits',
+        actor: @current_user,
+        message: review_params[:review_notes].presence || 'Show reopened for host edits.',
+        metadata: { reopened: true },
+        system_generated: false
+      )
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -143,6 +166,13 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def reject
     if @playlist.update(status: 'rejected', review_notes: review_params[:review_notes], reviewed_at: Time.current)
+      @playlist.record_timeline_event!(
+        'rejected',
+        actor: @current_user,
+        message: review_params[:review_notes].presence || 'Show rejected.',
+        metadata: { review_notes: review_params[:review_notes] },
+        system_generated: false
+      )
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -163,6 +193,13 @@ class Api::V1::PlaylistsController < ApplicationController
     end
 
     if @playlist.update(status: 'scheduled', scheduled_at: scheduled_at)
+      @playlist.record_timeline_event!(
+        'scheduled',
+        actor: @current_user,
+        message: "Show scheduled for #{scheduled_at.iso8601}.",
+        metadata: { scheduled_at: scheduled_at.iso8601 },
+        system_generated: false
+      )
       render json: serialize_playlist(@playlist)
     else
       render json: { errors: @playlist.errors.full_messages }, status: :unprocessable_entity
@@ -184,6 +221,13 @@ class Api::V1::PlaylistsController < ApplicationController
 
     @playlist.update!(render_status: 'rendering', render_error: nil)
     RenderBroadcastMasterJob.perform_later(@playlist.id)
+    @playlist.record_timeline_event!(
+      'render_requested',
+      actor: @current_user,
+      message: 'Broadcast master render requested.',
+      metadata: { render_status: 'rendering' },
+      system_generated: false
+    )
     render json: serialize_playlist(@playlist), status: :accepted
   end
 
@@ -192,6 +236,20 @@ class Api::V1::PlaylistsController < ApplicationController
     render json: serialize_playlist(delivered_playlist)
   rescue AzuracastMasterDeliveryService::DeliveryError => error
     render_transition_error(error.message)
+  end
+
+  def delivery_test
+    report = AzuracastDeliveryTestService.new(@playlist, actor: @current_user).run
+    render json: {
+      playlist: serialize_playlist(@playlist.reload),
+      report: report
+    }
+  rescue AzuracastDeliveryTestService::DeliveryTestError => error
+    render json: {
+      playlist: serialize_playlist(@playlist.reload),
+      report: error.report,
+      errors: [error.message]
+    }, status: :unprocessable_entity
   end
 
   private
@@ -220,6 +278,24 @@ class Api::V1::PlaylistsController < ApplicationController
 
   def set_station_playlist
     @playlist = Playlist.where(status: %w[submitted needs_edits rejected ready scheduled aired]).find(params[:id])
+  end
+
+  def record_show_save_event(playlist, created: false)
+    if playlist.status == 'submitted'
+      playlist.record_timeline_event!(
+        'submitted',
+        actor: @current_user,
+        message: 'Show submitted for station review.',
+        system_generated: false
+      )
+    else
+      playlist.record_timeline_event!(
+        'draft_saved',
+        actor: @current_user,
+        message: created ? 'Show draft created.' : 'Show draft saved.',
+        system_generated: false
+      )
+    end
   end
 
   def playlist_params
@@ -444,12 +520,13 @@ class Api::V1::PlaylistsController < ApplicationController
       delivery_status: playlist.delivery_status,
       delivery_target: playlist.delivery_target,
       delivery_reference: playlist.delivery_reference,
-      delivery_manifest: playlist.delivery_manifest,
+      delivery_manifest: serialize_delivery_manifest(playlist.delivery_manifest),
       delivered_at: playlist.delivered_at,
       render_status: playlist.render_status,
       render_error: playlist.render_error,
       rendered_at: playlist.rendered_at,
       rendered_master_audio_file: serialize_master_audio_file(playlist.rendered_master_audio_file),
+      timeline_events: playlist.timeline_events.order(:occurred_at, :id).map { |event| serialize_timeline_event(event) },
       full_show_audio_file: playlist.full_show_audio_file && {
         id: playlist.full_show_audio_file.id,
         name: playlist.full_show_audio_file.name,
@@ -494,6 +571,45 @@ class Api::V1::PlaylistsController < ApplicationController
       content_type: audio_file.content_type,
       size: audio_file.size
     }
+  end
+
+  def serialize_delivery_manifest(manifest)
+    redact_signed_urls(manifest.to_h)
+  end
+
+  def serialize_timeline_event(event)
+    {
+      id: event.id,
+      event_type: event.event_type,
+      occurred_at: event.occurred_at,
+      actor_name: event.actor_name,
+      message: event.message,
+      system_generated: event.system_generated,
+      metadata: event.metadata
+    }
+  end
+
+  def redact_signed_urls(value)
+    case value
+    when Hash
+      value.transform_values { |item| redact_signed_urls(item) }
+    when Array
+      value.map { |item| redact_signed_urls(item) }
+    when String
+      redact_signed_url(value)
+    else
+      value
+    end
+  end
+
+  def redact_signed_url(value)
+    uri = URI.parse(value)
+    return value unless uri.query.to_s.match?(/X-Amz-/i)
+
+    uri.query = nil
+    "#{uri}?[redacted-signature]"
+  rescue URI::InvalidURIError
+    value
   end
 
   def serialize_public_playlist(playlist)

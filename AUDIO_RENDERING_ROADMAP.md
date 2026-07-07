@@ -35,9 +35,9 @@ This is enough for internal testing and early MVP use, assuming source files are
    - Delivery reference.
    - Human Frequency canonical URL when available.
 
-4. Surface render reports in the admin UI.
-   - Show warnings beside the broadcast master preview.
-   - Include normalization mode and measured loudness values.
+4. Continue improving admin render report visibility.
+   - Current Station Review shows render health, normalization mode, target loudness, clipping warnings, render errors, output reference, and an expandable render report.
+   - Next step: add final-master verification details once the renderer measures the completed MP3.
    - Keep raw ffmpeg output out of public/frontend JSON unless sanitized.
 
 5. Keep originals untouched.
@@ -46,4 +46,4 @@ This is enough for internal testing and early MVP use, assuming source files are
 
 ## Release Rule
 
-Do not automate AzuraCast uploads until the renderer can produce a master that admins can preview and approve from Station Review.
+Do not rely on AzuraCast uploads for real programming until one non-critical scheduled show has passed the Station Review delivery test and the uploaded media has been confirmed in the configured AzuraCast playlist.
